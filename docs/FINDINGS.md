@@ -558,7 +558,7 @@ is established from what is inferred.
 | ACPI `_DEP` informs OSPM device start-ordering | **Established** | ACPI specification |
 | Windows' PnP property database records `\_SB.QCSP` as a `DependencyDependent` of SPSS (`ACPI\QCOM0C8D`), using the ACPI namespace path format that distinguishes never-presented devices from presented-but-failed ones | **Established** | `DEVPKEY_Device_DependencyDependents` on ACPI\QCOM0C8D = `\_SB.QCSP` (ACPI namespace path). Contrast: GLNK (running, OK) lists 9 dependents — all as PnP instance IDs, including SPSS itself (`ACPI\QCOM0C8D\2&daba3ff&0`) even though SPSS later failed AddDevice, because SPSS *was* presented to PnP. QCSP does not appear in GLNK's list. SOCP (running, OK) has no `DependencyDependents` at all. Only SPSS (failed) retains `\_SB.QCSP` as an ACPI path — the format used when a device was never presented to the PnP manager. (Sessions 49–50, 2026-06-08) |
 | `ACPI\QCOM0C87` was never presented to the PnP manager as an ACPI device | **Established** | Kernel-PnP/Configuration log (732 events, all boots): zero events for `ACPI\QCOM0C87`; setupapi.dev.log: no entry for `ACPI\QCOM0C87` as a hardware-initiated device install; `HKLM\...\Enum\ACPI` has no QCOM0C87 subkey (Session 49, 2026-06-08) |
-| Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated — acpi.sys decision not ETW-traced** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior — but the acpi.sys decision to withhold QCSP was not directly captured via WPR boot trace or WinDbg |
+| Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated — acpi.sys decision not ETW-instrumented (confirmed)** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior. A full-boot WPR/ETW trace with `Kernel-Acpi`, `ACPI Driver Trace Provider`, `Kernel-PnP`, and `Kernel-Boot` enabled captured **zero events from any of the four** during the failure window (Session 50, 2026-06-08) — confirming the acpi.sys `_DEP`-gate decision is not observable via ETW on this system, not merely "not yet captured." Not directly captured via WinDbg either |
 | `qcsubsys.sys` fails because it opens the (absent) PIL TZ interface during init | **Inferred** | NTSTATUS `STATUS_OBJECT_NAME_NOT_FOUND` + correlation; not from driver symbols or a trace |
 | Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred (untested end-to-end)** | Follows from the model; never executed, because no injection method on this firmware succeeded (§7–§8) |
 
@@ -566,11 +566,15 @@ is established from what is inferred.
 indicated into proven** — still not done, still recorded as open paths in
 [§11](#11--open-questions-untried-and-unproven-paths):
 
-- A **WPR / ETW boot trace** with the Microsoft-Windows-ACPI provider enabled across
-  boot, catching acpi.sys declining to expose `ACPI\QCOM0C87` due to the unresolved
-  `\_SB.SPSS` `_DEP`. The Kernel-PnP/Configuration log alone does not contain this
-  — it records post-presentation events; the `_DEP` gate fires inside acpi.sys before
-  a device reaches the PnP manager.
+- ~~A **WPR / ETW boot trace**~~ — **attempted and closed (Session 50, 2026-06-08).**
+  A five-provider boot-trace profile (`Kernel-Acpi`, `ACPI Driver Trace Provider`,
+  `Kernel-PnP`, `Kernel-Boot`, `DriverFrameworks-UserMode`) captured a full reboot
+  through the failure state. The four ACPI/PnP/Boot providers logged **zero events**
+  — confirmed as a real negative result (the fifth provider, `DriverFrameworks-UserMode`,
+  *did* log real events for unrelated devices in the same capture, proving the profile
+  was honored). This closes the ETW path: `acpi.sys`'s `_DEP`-gate decision is not
+  instrumented for ETW on this system, so no boot trace can promote this row to
+  "proven." See SESSION_LOG Session 50 for the full analysis.
 - A **live-kernel DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a forced bus
   rescan: if the deadlock breaks, the DSDT fix is proven sufficient.
 - A **factory-image comparison** establishing whether a working A14-11M uses the same
@@ -1083,7 +1087,7 @@ work could not verify, that is stated.
   provisioning / load order, not the firmware table; if the DSDT **differs**, the
   firmware-table defect is confirmed independently. *Status: not attempted — no
   factory image was booted or compared.* This also directly tests the §10 hypothesis.
-- **ETW / Kernel-PnP static capture — partially done (Session 49, 2026-06-08).**
+- **ETW / Kernel-PnP static capture — done (Session 49, 2026-06-08).**
   The `Microsoft-Windows-Kernel-PnP/Configuration` log (732 events) and
   `setupapi.dev.log` were searched for `QCOM0C87`, `QCOM0C8D`, `_DEP`, and dependency
   keywords. Key results: (a) `ACPI\QCOM0C8D` (SPSS) has a confirmed Event 411 ("had a
@@ -1092,12 +1096,25 @@ work could not verify, that is stated.
   was never presented to the PnP manager; (c) `DEVPKEY_Device_DependencyDependents` on
   SPSS records `\_SB.QCSP` using the ACPI namespace path, indicating the ACPI
   enumerator populated this during `_DEP` evaluation before QCSP was ever presented.
-  Raw captures in `diagnostic-captures/` (gitignored). **What remains:** the
-  `_DEP`-gate decision inside `acpi.sys` is not logged by these sources — it fires
-  before the PnP manager sees the device. A **WPR boot trace with the
-  Microsoft-Windows-ACPI provider** is the remaining step to directly observe acpi.sys
-  deferring QCSP. *Status: Kernel-PnP static capture done; WPR boot trace not
-  attempted.*
+  Raw captures in `diagnostic-captures/` (gitignored).
+- **WPR / ETW boot trace — attempted and closed as a confirmed limitation (Session 50,
+  2026-06-08).** A custom WPR boot-trace profile (`dep_gate_boottrace.wprp`) was armed
+  with five providers — `Microsoft-Windows-Kernel-Acpi`, `ACPI Driver Trace Provider`,
+  `Microsoft-Windows-Kernel-PnP`, `Microsoft-Windows-Kernel-Boot`, and
+  `Microsoft-Windows-DriverFrameworks-UserMode` — across a full reboot, then captured
+  with `wpr -stopboot` and analyzed with `tracerpt`. All three baseline oracles
+  re-confirmed an exact match before and after, so the trace covers the persistent
+  failure window being studied. Result: the four ACPI/PnP/Boot providers logged
+  **zero events of any kind** (not just zero for QCSP/SPSS); only
+  `DriverFrameworks-UserMode` produced events, and those were for two unrelated UMDF
+  devices (`ACPI\QCOM06D8`, `ACPI\QCOM0CA8`), which proves the profile *was* honored —
+  the silence from the other four is a real negative result, not a misregistration.
+  This confirms `acpi.sys`'s `_DEP`-gate evaluation is **not observable via ETW** on
+  this system/build through any provider available in a standard WPR boot-trace
+  profile — it fires too early and/or is not instrumented. Raw `.etl`, CSV dump, and
+  summary in `diagnostic-captures/` (gitignored); full analysis in SESSION_LOG Session
+  50. *Status: Kernel-PnP static capture done; WPR boot trace attempted and closed —
+  this avenue cannot promote the root-cause model to "proven."*
 - **Live-kernel DSDT patch (also a fix-validation).** With a kernel debugger attached,
   patch `_DEP[2]` SPSS→GLNK at `0x36C69` in the in-memory DSDT after `acpi.sys` maps
   it but before PnP evaluates `_DEP`, then force a bus rescan. If the deadlock breaks,

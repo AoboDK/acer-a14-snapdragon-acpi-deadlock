@@ -6751,3 +6751,94 @@ released because SPSS never started successfully.
 Raw dumps saved to `diagnostic-captures/` (gitignored).
 
 §6 proof-status table updated to include this contrast.
+
+---
+
+## Session 50 (2026-06-08) — WPR boot-trace capture: closed as a confirmed limitation
+
+### Context
+
+Picking up the one remaining item from the §6/§11 "what would turn this into proven"
+list: a WPR/ETW boot trace with ACPI-related providers enabled, intended to directly
+observe `acpi.sys` declining to expose `ACPI\QCOM0C87` (QCSP) due to the unresolved
+`\_SB.SPSS` `_DEP`. The autologger (custom profile `DepGate.Verbose.File`, providers
+`Microsoft-Windows-Kernel-Acpi`, `ACPI Driver Trace Provider`,
+`Microsoft-Windows-Kernel-PnP`, `Microsoft-Windows-Kernel-Boot`, and
+`Microsoft-Windows-DriverFrameworks-UserMode`) was armed in the prior session via
+`wpr -addboot`. This session captured the boot, stopped the trace, and analyzed it.
+
+### Commands
+
+```powershell
+# Re-confirm the three baseline oracles before trusting the trace
+Get-PnpDevice | Where-Object { $_.InstanceId -like "ACPI\QCOM0C87*" }   # expect: absent
+Get-PnpDevice | Where-Object { $_.InstanceId -like "ACPI\QCOM0C8D*" }   # expect: Error / CM_PROB_FAILED_ADD
+# DSDT byte check at 0x36C69..0x36C6C -> expect "SPSS"
+
+# Stop the boot-trace autologger and merge the recording into a named .etl (elevated)
+wpr -stopboot "diagnostic-captures\dep_gate_20260608.etl" "ACPI _DEP gate boot trace - QCSP-SPSS"
+
+# Convert to CSV and summarize for text search
+tracerpt diagnostic-captures\dep_gate_20260608.etl `
+    -o diagnostic-captures\dep_gate_20260608_dump.csv -of CSV `
+    -summary diagnostic-captures\dep_gate_20260608_summary.txt
+```
+
+### Results
+
+All three baseline oracles re-confirmed an exact match to the pre-reboot state —
+`ACPI\QCOM0C87` absent, `ACPI\QCOM0C8D` `Status=Error` / `Problem=CM_PROB_FAILED_ADD`
+(`InstanceId ACPI\QCOM0C8D\2&DABA3FF&0`), DSDT byte signature unchanged (`53 50 53 53`
+= "SPSS" at `0x36C69`). The trace covers the same persistent failure scenario being
+studied, not a different boot.
+
+The captured trace was small: 9 buffers, 152 events, ~303 s elapsed. Provider-level
+breakdown from `tracerpt -summary` and CSV inspection:
+
+| Provider specified in profile | Events captured |
+|---|---|
+| Microsoft-Windows-Kernel-Acpi | **0** |
+| ACPI Driver Trace Provider | **0** |
+| Microsoft-Windows-Kernel-PnP | **0** |
+| Microsoft-Windows-Kernel-Boot | **0** |
+| Microsoft-Windows-DriverFrameworks-UserMode | 74 — UMDF lifecycle events, but for two *other* ACPI devices: `ACPI\QCOM06D8\0` (`qcSSGServicesUMD`) and `ACPI\QCOM0CA8\0` (`qcconnectionmanager`-class service) |
+
+No event in the trace references `QCOM0C87`, `QCOM0C8D`, `QCSP`, `SPSS`, `_DEP`, or
+`FAILED_ADD`. The only string hits on those terms were the trace's own
+session-description label (`"ACPI _DEP gate boot trace - QCSP-SPSS"`, the literal
+string passed to `wpr -stopboot`) — a false positive, not an event.
+
+### Interpretation
+
+This is the **documented-limitation outcome** the prior handoff anticipated as a
+valid, useful result (closing off the avenue rather than leaving it open).
+
+Two observations support trusting this as a genuine negative result rather than a
+misconfigured capture:
+
+1. **The profile *was* honored.** `Microsoft-Windows-DriverFrameworks-UserMode` — one
+   of the five specified providers — emitted real, correctly-attributed events for two
+   unrelated ACPI devices during the same boot window. Had the provider list been
+   ignored or mis-registered, this provider would be silent too.
+2. **The four ACPI/PnP/Boot providers produced *zero* events of any kind** — not just
+   zero events naming QCSP/SPSS, but zero events whatsoever. `Kernel-Acpi` and
+   `ACPI Driver Trace Provider` do not emit ETW events during early boot on this
+   build/firmware (or at the verbosity WPR's boot-trace mode requests), and
+   `Kernel-PnP`/`Kernel-Boot` likewise logged nothing in this window — consistent with
+   the Session 49 finding that `ACPI\QCOM0C87` never appears in the (post-boot)
+   Kernel-PnP/Configuration log either.
+
+**Conclusion:** the WPR/ETW boot-trace avenue is now **closed and documented as a
+confirmed limitation** — `acpi.sys`'s `_DEP`-gate evaluation is not observable via ETW
+on this system through any provider available in a standard WPR boot-trace profile.
+This does not weaken the "strongly indicated" root-cause model in §6; it removes one
+specific path that could have promoted it to "proven," and explains *why* that
+promotion is not achievable through tracing. The remaining paths to proof are the
+live-kernel DSDT patch and the factory-image comparison (§11).
+
+Raw `.etl`, CSV dump, and summary saved to `diagnostic-captures/` (gitignored). The
+WPR autologger registration was automatically removed by `wpr -stopboot` (confirmed
+absent from the Autologger registry key afterward) — expected cleanup, not a
+regression.
+
+§6 proof-status table and §11 updated to record this avenue as attempted and closed.
