@@ -1,0 +1,299 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260522133505
+Username: DESKTOP-QNLHH3G\user
+RunAs User: DESKTOP-QNLHH3G\user
+Configuration Name: 
+Machine: DESKTOP-QNLHH3G (Microsoft Windows NT 10.0.28000.0)
+Host Application: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 3788
+PSVersion: 5.1.28000.2113
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.28000.2113
+BuildVersion: 10.0.28000.2113
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is C:\Users\user\Desktop\A14_MediumRiskDriverInstall.log
+
+============================================================
+Installing: QCOM04DD - Qualcomm SCM
+INF: C:\Users\user\Desktop\Base Driver_Qualcomm_0.7700.1_W11ARM64_A\Base Driver_Qualcomm_0.7700.1_W11ARM64_(Qualcomm Base Driver)\qcscm\qcscm.inf
+============================================================
+Microsoft PnP Utility
+
+Adding driver package:  qcscm.inf
+Driver package added successfully.
+Published Name:         oem84.inf
+Driver package installed on device: ACPI\QCOM04DD\0
+
+Total driver packages:  1
+Added driver packages:  1
+
+Current non-OK devices:
+
+Class    FriendlyName                                   Status                Problem InstanceId
+-----    ------------                                   ------                ------- ----------
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C5A\64
+System   Qualcomm(R) Analog-to-Digital Converter Device Error    CM_PROB_FAILED_START ACPI\QCOM0C11\0
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\F
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF9&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D05\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CBF\1
+HIDClass HID Button over Interrupt Driver               Error    CM_PROB_FAILED_START ACPI\ACPI0011\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF8&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CAC\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_06E0&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06DD\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF7&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C83&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C91\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06DC\2&DABA3FF&0
+Sensor   Qualcomm Human Presence Sensor                 Error      CM_PROB_FAILED_ADD ACPI\QCOM06D9\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C2C\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF5&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D18\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF4&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C32\1B
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06E5\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF3&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C8E\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFC&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\16
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF2&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFB&SUBSYS_...
+
+
+
+
+
+============================================================
+Installing: QCOM06DD - Qualcomm SOC Partition
+INF: C:\Users\user\Desktop\Base Driver_Qualcomm_0.7700.1_W11ARM64_A\Base Driver_Qualcomm_0.7700.1_W11ARM64_(Qualcomm Base Driver)\QcSocPartition\QcSOCPartition.inf
+============================================================
+Microsoft PnP Utility
+
+Adding driver package:  QcSOCPartition.inf
+Driver package added successfully.
+Published Name:         oem85.inf
+Driver package installed on device: ACPI\QCOM06DD\2&daba3ff&0
+
+Total driver packages:  1
+Added driver packages:  1
+
+Current non-OK devices:
+
+Class    FriendlyName                                   Status                Problem InstanceId
+-----    ------------                                   ------                ------- ----------
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C5A\64
+System   Qualcomm(R) Analog-to-Digital Converter Device Error    CM_PROB_FAILED_START ACPI\QCOM0C11\0
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\F
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF9&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D05\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CBF\1
+HIDClass HID Button over Interrupt Driver               Error    CM_PROB_FAILED_START ACPI\ACPI0011\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF8&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CAC\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_06E0&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF7&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C83&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C91\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06DC\2&DABA3FF&0
+Sensor   Qualcomm Human Presence Sensor                 Error      CM_PROB_FAILED_ADD ACPI\QCOM06D9\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C2C\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF5&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D18\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF4&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C32\1B
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06E5\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF3&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C8E\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFC&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\16
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF2&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFB&SUBSYS_...
+
+
+
+
+
+============================================================
+Installing: QCOM0CAC - Qualcomm SK Extension
+INF: C:\Users\user\Desktop\Base Driver_Qualcomm_0.7700.1_W11ARM64_A\Base Driver_Qualcomm_0.7700.1_W11ARM64_(Qualcomm Base Driver)\QcSkExt8380\QcSkExt8380.inf
+============================================================
+Microsoft PnP Utility
+
+Adding driver package:  QcSkExt8380.inf
+Driver package added successfully.
+Published Name:         oem86.inf
+Driver package installed on device: ACPI\QCOM0CAC\2&daba3ff&0
+
+Total driver packages:  1
+Added driver packages:  1
+
+Current non-OK devices:
+
+Class    FriendlyName                                   Status                Problem InstanceId
+-----    ------------                                   ------                ------- ----------
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C5A\64
+System   Qualcomm(R) Analog-to-Digital Converter Device Error    CM_PROB_FAILED_START ACPI\QCOM0C11\0
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\F
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF9&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D05\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CBF\1
+HIDClass HID Button over Interrupt Driver               Error    CM_PROB_FAILED_START ACPI\ACPI0011\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF8&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_06E0&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF7&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C83&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C91\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06DC\2&DABA3FF&0
+Sensor   Qualcomm Human Presence Sensor                 Error      CM_PROB_FAILED_ADD ACPI\QCOM06D9\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C2C\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF5&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D18\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF4&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C32\1B
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06E5\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF3&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C8E\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFC&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\16
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF2&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFB&SUBSYS_...
+
+
+
+
+
+============================================================
+Installing: QCOM0D18 - Qualcomm SOC Service KMDF
+INF: C:\Users\user\Desktop\Base Driver_Qualcomm_0.7700.1_W11ARM64_A\Base Driver_Qualcomm_0.7700.1_W11ARM64_(Qualcomm Base Driver)\QcSocServiceKMDF8380\QcSocServiceKMDF8380.inf
+============================================================
+Microsoft PnP Utility
+
+Adding driver package:  QcSocServiceKMDF8380.inf
+Driver package added successfully.
+Published Name:         oem87.inf
+Driver package installed on device: ACPI\QCOM0D18\2&daba3ff&0
+
+Total driver packages:  1
+Added driver packages:  1
+
+Current non-OK devices:
+
+Class    FriendlyName                                   Status                Problem InstanceId
+-----    ------------                                   ------                ------- ----------
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C5A\64
+System   Qualcomm(R) Analog-to-Digital Converter Device Error    CM_PROB_FAILED_START ACPI\QCOM0C11\0
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\F
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF9&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D05\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CBF\1
+HIDClass HID Button over Interrupt Driver               Error    CM_PROB_FAILED_START ACPI\ACPI0011\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF8&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_06E0&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF7&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C83&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C91\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06DC\2&DABA3FF&0
+Sensor   Qualcomm Human Presence Sensor                 Error      CM_PROB_FAILED_ADD ACPI\QCOM06D9\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C2C\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF5&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF4&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C32\1B
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06E5\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF3&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C8E\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFC&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\16
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF2&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFB&SUBSYS_...
+
+
+
+
+
+============================================================
+Installing: QCOM06E5 - Qualcomm Subsystem Thermal Manager
+INF: C:\Users\user\Desktop\Base Driver_Qualcomm_0.7700.1_W11ARM64_A\Base Driver_Qualcomm_0.7700.1_W11ARM64_(Qualcomm Base Driver)\qcSubsysThermalMgr\qcSubsysThermalMgr.inf
+============================================================
+Microsoft PnP Utility
+
+Adding driver package:  qcSubsysThermalMgr.inf
+Driver package added successfully.
+Published Name:         oem88.inf
+Driver package installed on device: ACPI\QCOM06E5\2&daba3ff&0
+
+Total driver packages:  1
+Added driver packages:  1
+
+Current non-OK devices:
+
+Class    FriendlyName                                   Status                Problem InstanceId
+-----    ------------                                   ------                ------- ----------
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C5A\64
+System   Qualcomm(R) Analog-to-Digital Converter Device Error    CM_PROB_FAILED_START ACPI\QCOM0C11\0
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\F
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF9&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0D05\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0CBF\1
+HIDClass HID Button over Interrupt Driver               Error    CM_PROB_FAILED_START ACPI\ACPI0011\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF8&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_06E0&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF7&SUBSYS_...
+                                                        Error  CM_PROB_NOT_CONFIGURED ACPI\QCOM0CD5\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C83&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C91\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM06DC\2&DABA3FF&0
+Sensor   Qualcomm Human Presence Sensor                 Error      CM_PROB_FAILED_ADD ACPI\QCOM06D9\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C2C\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF5&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF4&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C32\1B
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C58\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C59\1
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF3&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\QCOM0C8E\2&DABA3FF&0
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFC&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0C09&SUBSYS_...
+System   Qualcomm(R) Bus Device                         Error      CM_PROB_FAILED_ADD ACPI\QCOM0C16\16
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CF2&SUBSYS_...
+                                                        Error  CM_PROB_FAILED_INSTALL ACPI\VEN_QCOM&DEV_0CFB&SUBSYS_...
+
+
+
+
+**********************
+Windows PowerShell transcript end
+End time: 20260522133512
+**********************

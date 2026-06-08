@@ -1,0 +1,63 @@
+# ── Driver packages (large, copyright, not needed to replicate the work) ──────
+driver-packages/*.zip
+driver-packages/extracted/
+driver-packages/Acer-Official/
+
+# ── System image backups ───────────────────────────────────────────────────────
+*.wim
+*.vhd
+*.vhdx
+
+# ── Large diagnostic ZIPs kept locally but not worth version-controlling ───────
+# (keep the small ones; exclude anything over a few MB)
+diagnostic-captures/
+
+# ── EFI compiled output (reproducible from build_efi.py + ssdt_qcsp.aml) ──────
+efi-injection/AcpiInject.efi
+
+# ── ACPI working files in C:\Drivers\ (not in this repo tree, listed for clarity)
+# dsdt.aml  dsdt.dsl  dsdt_patched.aml  iasl.exe  AcpiInject.efi
+
+# ── Session handoff notes (private inter-session working docs) ────────────────
+docs/SessionHandoff_*.md
+
+# ── WOA/community escalation draft (not being pursued; not part of the paper) ──
+docs/WOA_Escalation_Issue_Draft.md
+
+# ── Baselines: keep key milestone CSVs + the single-INF install transcript ────
+# Exclude everything in baselines, then re-include only the published artifacts.
+# (Broad *.log/*.txt excludes catch the failed-command noise and the empty QCPEP
+#  stub; the dism_capture / wbadmin logs are .txt, which earlier *.log rules missed.)
+baselines/*.csv
+baselines/*.log
+baselines/*.txt
+!baselines/A14_PostSelectiveInstall_20260522_133228.csv
+!baselines/A14_AfterPhase4_PIL_20260522_144014.csv
+!baselines/A14_PreSSDTReboot_20260526_131738.csv
+!baselines/A14_AfterAttempt5l_20260528_162821.csv
+!baselines/A14_MediumRiskDriverInstall.log
+
+# ── Root-level working files and zips ─────────────────────────────────────────
+*.zip
+priv_check.txt
+uefi_diag.txt
+uefi_var_result.txt
+
+# ── Windows / editor noise ─────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+*.tmp
+~$*
+
+# ── Git itself ─────────────────────────────────────────────────────────────────
+.git/
+
+# ── AI assistant working file (not part of the published paper) ───────────────
+CLAUDE.md
+
+# ── Internal AI session planning docs (not part of the published paper) ───────
+docs/superpowers/
+
+# ── Internal notes / mnemonic photos (kept locally, not published) ────────────
+docs/photos/
