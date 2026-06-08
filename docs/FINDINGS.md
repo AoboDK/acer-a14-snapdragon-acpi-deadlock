@@ -558,7 +558,7 @@ is established from what is inferred.
 | ACPI `_DEP` informs OSPM device start-ordering | **Established** | ACPI specification |
 | Windows' PnP property database records `\_SB.QCSP` as a `DependencyDependent` of SPSS (`ACPI\QCOM0C8D`), using the ACPI namespace path format that distinguishes never-presented devices from presented-but-failed ones | **Established** | `DEVPKEY_Device_DependencyDependents` on ACPI\QCOM0C8D = `\_SB.QCSP` (ACPI namespace path). Contrast: GLNK (running, OK) lists 9 dependents — all as PnP instance IDs, including SPSS itself (`ACPI\QCOM0C8D\2&daba3ff&0`) even though SPSS later failed AddDevice, because SPSS *was* presented to PnP. QCSP does not appear in GLNK's list. SOCP (running, OK) has no `DependencyDependents` at all. Only SPSS (failed) retains `\_SB.QCSP` as an ACPI path — the format used when a device was never presented to the PnP manager. (Sessions 49–50, 2026-06-08) |
 | `ACPI\QCOM0C87` was never presented to the PnP manager as an ACPI device | **Established** | Kernel-PnP/Configuration log (732 events, all boots): zero events for `ACPI\QCOM0C87`; setupapi.dev.log: no entry for `ACPI\QCOM0C87` as a hardware-initiated device install; `HKLM\...\Enum\ACPI` has no QCOM0C87 subkey (Session 49, 2026-06-08) |
-| Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated — acpi.sys decision not ETW-instrumented (confirmed)** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior. A full-boot WPR/ETW trace with `Kernel-Acpi`, `ACPI Driver Trace Provider`, `Kernel-PnP`, and `Kernel-Boot` enabled captured **zero events from any of the four** during the failure window (Session 50, 2026-06-08) — confirming the acpi.sys `_DEP`-gate decision is not observable via ETW on this system, not merely "not yet captured." Not directly captured via WinDbg either |
+| Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated, with new live in-memory corroboration — acpi.sys decision itself still not directly captured** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior. A full-boot WPR/ETW trace with `Kernel-Acpi`, `ACPI Driver Trace Provider`, `Kernel-PnP`, and `Kernel-Boot` enabled captured **zero events from any of the four** during the failure window (Session 50, 2026-06-08) — confirming the acpi.sys `_DEP`-gate decision is not observable via ETW on this system, not merely "not yet captured." Local kernel debugging (Session 51, 2026-06-08) then directly inspected the live SPSS device object in kernel memory and found `ExtensionFlags = DOE_START_PENDING` — a first-hand, in-memory observation that the device's start is being held pending right now, exactly as the model predicts (rather than an after-the-fact log record of a past decision). It does not, by itself, name *which* dependency is doing the gating — that would require locating the in-memory `_DEP`/QCSP-naming structure, which a small-window kernel-memory string search for `QCOM0C87`/`QCSP`/`\_SB.QCSP` did not find (see §11) |
 | `qcsubsys.sys` fails because it opens the (absent) PIL TZ interface during init | **Inferred** | NTSTATUS `STATUS_OBJECT_NAME_NOT_FOUND` + correlation; not from driver symbols or a trace |
 | Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred (untested end-to-end)** | Follows from the model; never executed, because no injection method on this firmware succeeded (§7–§8) |
 
@@ -575,6 +575,23 @@ indicated into proven** — still not done, still recorded as open paths in
   was honored). This closes the ETW path: `acpi.sys`'s `_DEP`-gate decision is not
   instrumented for ETW on this system, so no boot trace can promote this row to
   "proven." See SESSION_LOG Session 50 for the full analysis.
+- ~~A **live local-kernel-debugger inspection**~~ — **attempted, partially successful,
+  brute-force variant closed (Session 51, 2026-06-08).** With `bcdedit /debug on` and
+  `kdARM64.exe -kl`, the live SPSS device object was located and inspected directly:
+  `ExtensionFlags = DOE_START_PENDING` (first-hand confirmation the start is being
+  held pending) and `Problem Status 0xc000003b` decoded to the more specific
+  `STATUS_OBJECT_PATH_COMPONENT_NOT_A_DIRECTORY` (a new clue — see §11). However, a
+  full-address-space `s -a`/`s -u` string search for `QCOM0C87`/`QCSP`/`\_SB.QCSP`
+  (the search that could locate the in-memory `_DEP` structure and complete the proof)
+  is **not practically achievable**: every attempt at a wide range (32 MB, 2 GB)
+  hung indefinitely and had to be force-killed, while a small 2 MB window around
+  `acpi.sys`'s code returned a clean negative. This closes the brute-force variant of
+  the live-memory path — mirroring the Session 50 ETW conclusion, a different
+  instrumentation layer hits the same kind of wall. The avenue is *narrowed, not
+  closed*: a future session could still try other small, well-chosen windows (e.g.
+  around `qcsubsys8380.sys` pool allocations or PnP-manager structures) if their
+  addresses can be obtained without triggering the `lm`/symbol-resolution hang. See
+  SESSION_LOG Session 51 for the full analysis.
 - A **live-kernel DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a forced bus
   rescan: if the deadlock breaks, the DSDT fix is proven sufficient.
 - A **factory-image comparison** establishing whether a working A14-11M uses the same
@@ -1119,7 +1136,57 @@ work could not verify, that is stated.
   patch `_DEP[2]` SPSS→GLNK at `0x36C69` in the in-memory DSDT after `acpi.sys` maps
   it but before PnP evaluates `_DEP`, then force a bus rescan. If the deadlock breaks,
   the DSDT patch is *proven sufficient* without any persistent firmware change.
-  *Status: not attempted; feasibility depends on KD setup on this locked-down platform.*
+  *Status: KD setup feasibility is now resolved — Session 51 (2026-06-08) successfully
+  enabled and used local kernel debugging (`bcdedit /debug on` + `kdARM64.exe -kl`) on
+  this exact locked-down platform (HVCI/Secure Boot ON) without issue. The patch
+  itself remains not attempted — it requires locating the in-memory DSDT mapping and
+  intercepting at the right point in the boot sequence, a materially harder task than
+  the read-only inspection done so far.*
+- **Live local-kernel-memory inspection — attempted, partially successful (Session 51,
+  2026-06-08).** With local kernel debugging enabled and `kdARM64.exe -kl` attached,
+  the live SPSS device object (`PDO 0xffffbd0ebd52cd50`, owned solely by `\Driver\ACPI`
+  — confirming via `!devstack` that `qcsubsys.sys` never attached an FDO) was located
+  and inspected directly in kernel memory:
+  - `!devobj` showed `ExtensionFlags = DOE_START_PENDING` — the literal, live
+    kernel-internal flag meaning "this device's start IRP is being withheld," observed
+    directly rather than inferred from logs. This is the first first-hand, in-memory
+    confirmation of the "device held pending" state the root-cause model predicts (see
+    the updated §6 table row above).
+  - `!error 0xc000003b` decoded the SPSS `Problem Status` to
+    `STATUS_OBJECT_PATH_COMPONENT_NOT_A_DIRECTORY` — see the new open question below.
+  - A targeted `s -a`/`s -u` string search for `QCOM0C87`/`QCSP`/`\_SB.QCSP` in a 2 MB
+    window around `acpi.sys`'s code returned a clean negative; wider ranges (32 MB,
+    2 GB) hung indefinitely and could not complete (see the brute-force-search item
+    below). *Status: read-only live inspection succeeded and produced new evidence;
+    locating the in-memory `_DEP`/dependency-tracking structure itself remains
+    unresolved.* Full command list, raw logs, and analysis in SESSION_LOG Session 51
+    and `diagnostic-captures/` (gitignored).
+- **Chase the `0xc000003b` / `STATUS_OBJECT_PATH_COMPONENT_NOT_A_DIRECTORY` thread —
+  new, surfaced in Session 51 (2026-06-08).** The SPSS devnode's `Problem Status`
+  decodes to a far more specific NTSTATUS than the generic `CM_PROB_FAILED_ADD` label:
+  "Object Path Component was not a directory object" — an Object Manager namespace
+  traversal failure (some intermediate path component along a `\...` path was not a
+  directory/container where one was expected). This was not previously decoded or
+  discussed in 50 prior sessions. Worth investigating: *what* object-manager path is
+  `acpi.sys`/`qcsubsys.sys` traversing when this fires — it could plausibly be, or lead
+  to, the very namespace structure that records `_DEP`/dependency state, which neither
+  the Session 50 ETW trace nor the Session 51 memory search could locate by other
+  means. *Status: NTSTATUS decoded; the namespace path it refers to has not been
+  identified.*
+- ~~**Brute-force kernel-memory string search for `QCOM0C87`/`QCSP`/`\_SB.QCSP`**~~ —
+  **attempted and closed as a confirmed tooling limitation (Session 51, 2026-06-08),**
+  mirroring the Session 50 ETW conclusion in a different instrumentation layer. Every
+  `s -a`/`s -u` search attempted over a wide address range (32 MB, then the originally
+  planned full ~2 GB kernel range) hung indefinitely (6+ minutes, zero progress) and
+  had to be force-killed; a `lm a <address>` lookup hung identically on network
+  symbol-path resolution (`srv*`). Only a narrow, pre-targeted 2 MB window (chosen from
+  addresses already known via `!drvobj`/`!devobj`, avoiding `lm` entirely) completed —
+  in under a minute — and returned a clean negative. **This closes the brute-force
+  variant**: a full-address-space string search is not practically achievable via
+  local-KD `s` commands on this hardware/build. The avenue is *narrowed, not closed* —
+  small, well-chosen windows remain viable *if* their addresses can be obtained without
+  triggering the `lm`/symbol-resolution hang (e.g. candidates: `qcsubsys8380.sys` pool
+  allocations, PnP-manager data structures, the ACPI namespace cache — all untried).
 - **Cross-device DSDT comparison.** Compare DSDTs from other Snapdragon X 8380 /
   `CRD08380` machines or other Acer BIOS revisions. The decisive question: does a
   *working* board include `\_SB.SPSS` in QCSP's `_DEP`? If not, the Acer V1.09 table is
