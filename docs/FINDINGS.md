@@ -546,24 +546,31 @@ V1.09 has been attempted and the results are examined in §7.
 
 ### Limitations and proof status
 
-This root-cause model is **strongly indicated by correlated evidence, not proven to
+This root-cause model is **strongly indicated by correlated evidence, including a
+direct device-property record of the dependency relationship, but not proven to
 kernel-debugger standard.** To keep the claim honest, the table below separates what
 is established from what is inferred.
 
 | Element | Status | Basis |
 |---|---|---|
-| QCSP (`QCOM0C87`) is absent from PnP; SPSS (`QCOM0C8D`) fails `CM_PROB_FAILED_ADD`; PIL TZ `Linked` is blank | **Established** | Direct registry / `Get-PnpDevice` observation, reproducible |
+| QCSP (`QCOM0C87`) is absent from PnP; SPSS (`QCOM0C8D`) fails `CM_PROB_FAILED_ADD`; PIL TZ `Linked` is blank | **Established** | Direct registry / `Get-PnpDevice` observation, reproducible (re-confirmed Session 49, 2026-06-08) |
 | The DSDT defines QCSP with `_DEP` on `\_SB.GLNK`, `\_SB.SOCP`, `\_SB.SPSS` | **Established** | Read from the live DSDT and disassembly (`iasl -d`) |
 | ACPI `_DEP` informs OSPM device start-ordering | **Established** | ACPI specification |
-| Windows holds `ACPI\QCOM0C87` *specifically because* `\_SB.SPSS` is unresolved | **Inferred (strongly indicated)** | Correlation of the observed states; **not** captured via ETW / Kernel-PnP trace or WinDbg |
+| Windows' PnP property database records `\_SB.QCSP` as a `DependencyDependent` of SPSS (`ACPI\QCOM0C8D`) | **Established** | `DEVPKEY_Device_DependencyDependents` on ACPI\QCOM0C8D reads `\_SB.QCSP`; ACPI namespace path (not PnP instance ID) indicates this was set by the ACPI enumerator during `_DEP` evaluation, before QCSP was presented (Session 49, 2026-06-08) |
+| `ACPI\QCOM0C87` was never presented to the PnP manager as an ACPI device | **Established** | Kernel-PnP/Configuration log (732 events, all boots): zero events for `ACPI\QCOM0C87`; setupapi.dev.log: no entry for `ACPI\QCOM0C87` as a hardware-initiated device install; `HKLM\...\Enum\ACPI` has no QCOM0C87 subkey (Session 49, 2026-06-08) |
+| Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated — acpi.sys decision not ETW-traced** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior — but the acpi.sys decision to withhold QCSP was not directly captured via WPR boot trace or WinDbg |
 | `qcsubsys.sys` fails because it opens the (absent) PIL TZ interface during init | **Inferred** | NTSTATUS `STATUS_OBJECT_NAME_NOT_FOUND` + correlation; not from driver symbols or a trace |
 | Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred (untested end-to-end)** | Follows from the model; never executed, because no injection method on this firmware succeeded (§7–§8) |
 
-**What would turn this from "strongly indicated" into proof** — none of which has been
-done in this work, and all of which are recorded as open paths in [§11](#11--open-questions-untried-and-unproven-paths):
+**What would turn "Windows holds QCSP because SPSS is unresolved" from strongly
+indicated into proven** — still not done, still recorded as open paths in
+[§11](#11--open-questions-untried-and-unproven-paths):
 
-- An **ETW / Kernel-PnP (or WinDbg) boot trace** showing Windows declining to start
-  `ACPI\QCOM0C87` because `\_SB.SPSS` is unresolved.
+- A **WPR / ETW boot trace** with the Microsoft-Windows-ACPI provider enabled across
+  boot, catching acpi.sys declining to expose `ACPI\QCOM0C87` due to the unresolved
+  `\_SB.SPSS` `_DEP`. The Kernel-PnP/Configuration log alone does not contain this
+  — it records post-presentation events; the `_DEP` gate fires inside acpi.sys before
+  a device reaches the PnP manager.
 - A **live-kernel DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a forced bus
   rescan: if the deadlock breaks, the DSDT fix is proven sufficient.
 - A **factory-image comparison** establishing whether a working A14-11M uses the same
@@ -1076,11 +1083,21 @@ work could not verify, that is stated.
   provisioning / load order, not the firmware table; if the DSDT **differs**, the
   firmware-table defect is confirmed independently. *Status: not attempted — no
   factory image was booted or compared.* This also directly tests the §10 hypothesis.
-- **ETW / Kernel-PnP / WinDbg boot trace of the `_DEP` gate.** Capture
-  `Microsoft-Windows-Kernel-PnP`, ACPI, SetupAPI and driver-framework providers across
-  boot (or attach a kernel debugger) and catch Windows declining to start
-  `ACPI\QCOM0C87` because `\_SB.SPSS` is unresolved. This is the step that would turn
-  the §6 model from *strongly indicated* into *proven*. *Status: not attempted.*
+- **ETW / Kernel-PnP static capture — partially done (Session 49, 2026-06-08).**
+  The `Microsoft-Windows-Kernel-PnP/Configuration` log (732 events) and
+  `setupapi.dev.log` were searched for `QCOM0C87`, `QCOM0C8D`, `_DEP`, and dependency
+  keywords. Key results: (a) `ACPI\QCOM0C8D` (SPSS) has a confirmed Event 411 ("had a
+  problem starting", Problem 0x1F / 0xC000003B); (b) `ACPI\QCOM0C87` produced **zero
+  events** in the Kernel-PnP log and zero hardware-initiated entries in setupapi — it
+  was never presented to the PnP manager; (c) `DEVPKEY_Device_DependencyDependents` on
+  SPSS records `\_SB.QCSP` using the ACPI namespace path, indicating the ACPI
+  enumerator populated this during `_DEP` evaluation before QCSP was ever presented.
+  Raw captures in `diagnostic-captures/` (gitignored). **What remains:** the
+  `_DEP`-gate decision inside `acpi.sys` is not logged by these sources — it fires
+  before the PnP manager sees the device. A **WPR boot trace with the
+  Microsoft-Windows-ACPI provider** is the remaining step to directly observe acpi.sys
+  deferring QCSP. *Status: Kernel-PnP static capture done; WPR boot trace not
+  attempted.*
 - **Live-kernel DSDT patch (also a fix-validation).** With a kernel debugger attached,
   patch `_DEP[2]` SPSS→GLNK at `0x36C69` in the in-memory DSDT after `acpi.sys` maps
   it but before PnP evaluates `_DEP`, then force a bus rescan. If the deadlock breaks,

@@ -6544,3 +6544,154 @@ pattern (offset 232) absent. Diagnostic strings ICT=OK/ERR, CT=OURS/OLD/NONE all
 If ICT=ERR → WOA escalation + BIOS mod are the only remaining paths.
 If ICT=OK + CT=OURS + still no QCOMM_ → bootmgfw reads ACPI from physical memory scan,
    not from ConfigurationTable (unusual, but possible on Qualcomm).
+
+---
+
+## Session 49 (2026-06-08) — Tier-0 _DEP-gate capture: static Kernel-PnP + setupapi + device-property evidence
+
+### Context
+
+Setup session on this machine (A14-11M) — fresh clone of the public repo, Git
+and GitHub CLI installed. Objective: turn the §6 weak link ("Windows withholds
+QCOM0C87 because SPSS is unresolved — inferred, not traced") into evidence using
+read-only diagnostics only. No driver or firmware changes.
+
+### Step 1 — Baseline re-confirmation
+
+**Commands:**
+```powershell
+Get-PnpDevice | Where-Object { $_.Status -ne 'OK' } | Sort-Object InstanceId | Format-Table
+Get-PnpDevice | Where-Object { $_.InstanceId -like '*QCOM0C87*' }
+(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceClasses\{E2EB84C1-4068-4994-A48F-F3AC0D38DC29}')  # PIL TZ
+$dsdt = (Get-ItemProperty 'HKLM:\HARDWARE\ACPI\DSDT\QCOMM_\SDM8380_\00000003' -Name '00000000').'00000000'
+[System.Text.Encoding]::ASCII.GetString($dsdt[0x36C69..0x36C6C])
+```
+
+**Outcomes:**
+- `ACPI\QCOM0C87`: ABSENT from PnP tree (confirmed).
+- `ACPI\QCOM0C8D` (SPSS): Status = Error, present.
+- PIL TZ `{E2EB84C1-4068-4994-A48F-F3AC0D38DC29}` key exists; `Linked` = blank.
+- DSDT oracle: `53 50 53 53` = "SPSS" — original broken configuration.
+- `HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\QCOM0C87`: absent.
+- `qcsp` service key: exists (residual from Session 42/43 ROOT-device experiments).
+
+Baseline exported to `baselines\A14_baseline_tier0_20260608.csv` (gitignored).
+
+### Step 2 — Tier-0 capture: setupapi.dev.log
+
+**Command:**
+```powershell
+Select-String -Path C:\Windows\INF\setupapi.dev.log -Pattern 'QCOM0C87|QCOM0C8D|E2EB84C1' -Context 5,5
+```
+
+**Outcome (42 matches):**
+
+1. **ACPI\QCOM0C8D (SPSS) — lines 24673–24767, date 2026-05-22 14:35:**
+   The ACPI bus presented SPSS to the PnP manager. Driver `oem70.inf`
+   (qcsubsys8380) was installed. Device was started but failed:
+   `!!!  Device not started: Device has problem: 0x1f (CM_PROB_FAILED_ADD), problem status: 0xc000003b.`
+
+2. **`ACPI\QCOM0C87` as an ACPI device: zero entries.** The hardware-initiated
+   device-install block for `ACPI\QCOM0C87` does not exist anywhere in setupapi.dev.log.
+   The only QCOM0C87 entries are `ROOT\QCOM0C87` installs from 2026-05-29 (Sessions
+   42–43, manual ROOT-device experiments via `install_root_qcsp.py`), which were
+   subsequently removed and are unrelated to ACPI enumeration.
+
+**Interpretation:** setupapi records every hardware-initiated device install.
+The complete absence of `ACPI\QCOM0C87` means the ACPI bus enumerator never
+presented QCSP to the PnP manager — not even as a failed install. This is
+consistent with `_DEP` gating happening inside acpi.sys before the device
+reaches the PnP manager. setupapi does not log why a device was not presented.
+
+### Step 3 — Tier-0 capture: Kernel-PnP/Configuration event log
+
+**Command:**
+```powershell
+Get-WinEvent -LogName 'Microsoft-Windows-Kernel-PnP/Configuration' -MaxEvents 1000 |
+    Where-Object { $_.Message -match 'QCOM0C87|QCOM0C8D|SPSS|depend|defer|_DEP|withheld|held' } |
+    Format-List TimeCreated, Id, Message
+```
+
+**Outcome (relevant events):**
+
+- **Event 411 for ACPI\QCOM0C8D, 2026-05-22 14:35:15:**
+  "Device ACPI\QCOM0C8D\2&daba3ff&0 had a problem starting. Problem: 0x1F. Problem Status: 0xC000003B."
+  Confirms SPSS failed at start.
+
+- **Events 400/410/420 for ROOT\QCOM0C87, 2026-05-29:**
+  ROOT-device experiment residuals (configured, started, deleted). Not ACPI-enumerated.
+
+- **`ACPI\QCOM0C87`: zero Kernel-PnP events.** The log was searched across all
+  732 events in the Configuration channel and 128 in Device Management; no event for
+  `ACPI\QCOM0C87` was found.
+
+**Interpretation:** Kernel-PnP logs post-presentation device lifecycle events.
+QCSP never appeared because the `_DEP` gate fires inside acpi.sys upstream of the
+PnP manager. The log confirms SPSS failure and QCSP's complete absence, but does
+not log the gating decision itself.
+
+### Step 4 — Tier-0 capture: DEVPKEY_Device_DependencyDependents
+
+**Command:**
+```powershell
+pnputil /enum-devices /instanceid "ACPI\QCOM0C8D\2&DABA3FF&0" /properties
+```
+
+**Key output (sanitized):**
+```
+DEVPKEY_Device_DependencyProviders [String List]:
+    ACPI\VEN_QCOM&DEV_0C17&...
+    ACPI\VEN_QCOM&DEV_06E0&...
+    ACPI\QCOM06E1\2&daba3ff&0
+    ACPI\QCOM0C84\0
+
+DEVPKEY_Device_DependencyDependents [String List]:
+    \_SB.QCSP
+```
+
+**Interpretation — the key finding of this session:**
+
+`DEVPKEY_Device_DependencyDependents` on SPSS lists `\_SB.QCSP` — the ACPI
+namespace path for the QCSP device. The use of an ACPI namespace path (not a PnP
+instance ID like `ACPI\QCOM0C87\...`) is significant: it means this entry was
+written by the ACPI enumerator (acpi.sys) during `_DEP` graph construction from
+the DSDT, before QCSP was ever presented to the PnP manager (which would assign
+an instance ID). Windows is explicitly recording in its device property database:
+"QCSP depends on SPSS."
+
+Combined with the confirmed SPSS failure (CM_PROB_FAILED_ADD) and QCSP's complete
+absence from all PnP and event logs, this is the closest available static evidence
+of the `_DEP` gate. The acpi.sys decision to withhold QCSP itself was not directly
+observed — that requires a WPR boot trace with the Microsoft-Windows-ACPI provider.
+
+GLNK (QCOM0C84) was also queried; its `DependencyDependents` lists other devices
+(QCOM0C8E, QCOM0C1B) but not QCOM0C87. This is consistent with the `_DEP` database
+recording only the still-blocking dependency relationship.
+
+Raw captures saved to `diagnostic-captures/` (gitignored, not pushed).
+
+### Overall interpretation
+
+The Tier-0 capture adds three new pieces of evidence to the §6 model:
+
+1. `DEVPKEY_Device_DependencyDependents` on SPSS = `\_SB.QCSP` — Windows' own
+   dependency graph records that QCSP depends on SPSS, populated by the ACPI
+   enumerator from the DSDT `_DEP` before QCSP was presented.
+2. Zero Kernel-PnP events for `ACPI\QCOM0C87` — QCSP was never presented to PnP.
+3. Zero setupapi entries for `ACPI\QCOM0C87` as an ACPI device install — same.
+
+The one gap that static diagnostics cannot close: the acpi.sys decision to withhold
+QCSP is not logged by Kernel-PnP or setupapi. A WPR boot trace (Microsoft-Windows-ACPI
+provider) is the remaining step to directly capture it.
+
+**§6 proof status change:** "Windows holds QCOM0C87 specifically because \_SB.SPSS
+is unresolved" upgraded from "Inferred (strongly indicated)" to "Strongly indicated —
+acpi.sys decision not ETW-traced" with new corroborating evidence from
+`DEVPKEY_Device_DependencyDependents` and log absence. See updated §6 table.
+
+### Next steps
+
+- **WPR boot trace (§11a):** `wpr -boottrace` with Microsoft-Windows-ACPI +
+  Microsoft-Windows-Kernel-PnP providers; reboot; analyze .etl for the QCSP
+  enumeration decision. Requires user approval before reboot.
+- **§11b / §11c paths** remain untried and unchanged.
