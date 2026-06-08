@@ -6695,3 +6695,59 @@ acpi.sys decision not ETW-traced" with new corroborating evidence from
   Microsoft-Windows-Kernel-PnP providers; reboot; analyze .etl for the QCSP
   enumeration decision. Requires user approval before reboot.
 - **§11b / §11c paths** remain untried and unchanged.
+
+---
+
+## Session 49 (continued, 2026-06-08) — Three-provider DependencyDependents comparison
+
+### Context
+
+Extending the Tier-0 capture: query `DEVPKEY_Device_DependencyDependents` on all
+three `_DEP` providers for QCSP (GLNK/QCOM0C84, SOCP/QCOM0C8C, SPSS/QCOM0C8D)
+to test whether the format distinction (ACPI path vs PnP instance ID) is consistent
+across the full `_DEP` package.
+
+### Commands
+
+```powershell
+pnputil /enum-devices /instanceid "ACPI\QCOM0C84\0" /properties   # GLNK
+pnputil /enum-devices /instanceid "ACPI\QCOM0C8C\1" /properties   # SOCP
+pnputil /enum-devices /instanceid "ACPI\QCOM0C8D\2&DABA3FF&0" /properties  # SPSS
+```
+
+### Results
+
+| Provider | Status | DependencyDependents |
+|---|---|---|
+| GLNK `ACPI\QCOM0C84\0` | Running (OK) | 9 entries — all PnP instance IDs (e.g. `ACPI\QCOM0C8D\2&daba3ff&0` for SPSS) |
+| SOCP `ACPI\QCOM0C8C\1` | Running (OK) | Absent / empty |
+| SPSS `ACPI\QCOM0C8D\2&DABA3FF&0` | Failed (CM_PROB_FAILED_ADD) | `\_SB.QCSP` (ACPI namespace path) |
+
+### Interpretation
+
+The format contrast across the three providers is the key finding:
+
+- **GLNK (running)** lists dependents that were successfully presented to the PnP
+  manager, including SPSS itself as `ACPI\QCOM0C8D\2&daba3ff&0` — a full PnP
+  instance ID. SPSS *was* presented to PnP and received an instance ID (its driver
+  then failed AddDevice, but presentation happened). QCSP is absent from GLNK's list.
+
+- **SOCP (running)** has no `DependencyDependents` entry. QCSP's dependency on
+  SOCP was either resolved silently when SOCP started, or no entry was ever written
+  for a satisfied provider.
+
+- **SPSS (failed)** retains `\_SB.QCSP` as an ACPI namespace path — not a PnP
+  instance ID. This format directly encodes that QCSP was never presented to the
+  PnP manager: had it been presented (even to a failing driver), it would appear as
+  `ACPI\QCOM0C87\...`, as SPSS does in GLNK's list.
+
+The three-provider comparison therefore establishes that the ACPI-path format in
+SPSS's `DependencyDependents` is not a generic property of how the field is written —
+it is specific to devices that were never presented to PnP. The only provider still
+holding a `\_SB.QCSP` pending entry is the one that failed. This is consistent with
+Windows actively tracking QCSP as a device gated on SPSS, where the gate was never
+released because SPSS never started successfully.
+
+Raw dumps saved to `diagnostic-captures/` (gitignored).
+
+§6 proof-status table updated to include this contrast.
