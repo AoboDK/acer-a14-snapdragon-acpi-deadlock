@@ -20,13 +20,20 @@ policy devices (`STATUS_NO_SUCH_DEVICE`), and the Adreno GPU. Audio, Bluetooth, 
 battery reporting are blocked as downstream consequences. The QCSP device
 (`ACPI\QCOM0C87`) is absent from the Windows PnP tree entirely.
 
-The root cause is a circular dependency deadlock encoded in the system DSDT. The QCSP
-device (`_HID = "QCOM0C87"`) carries an `_DEP` reference to `\_SB.SPSS`. SPSS
-(`ACPI\QCOM0C8D`) cannot complete `AddDevice` because the PIL TZ interface
-(`{E2EB84C1-4068-4994-A48F-F3AC0D38DC29}`) is not active. That interface is activated
-by `qcsp.sys` — the driver for QCSP — but `qcsp.sys` never loads because QCSP is held
-back by Windows ACPI's unsatisfied-`_DEP` gate. The deadlock is self-referential and
-cannot be broken by driver installation alone.
+The root cause is **strongly indicated** to be a circular dependency deadlock encoded
+in the system DSDT. The QCSP device (`_HID = "QCOM0C87"`) carries an `_DEP` reference
+to `\_SB.SPSS`. SPSS (`ACPI\QCOM0C8D`) cannot complete `AddDevice` because the PIL TZ
+interface (`{E2EB84C1-4068-4994-A48F-F3AC0D38DC29}`) is not active. That interface is
+activated by `qcsp.sys` — the driver for QCSP — but `qcsp.sys` never loads because QCSP
+appears to be held back by Windows ACPI's unsatisfied-`_DEP` gate. The deadlock is
+self-referential and cannot be broken by driver installation alone.
+
+This model is built from directly-observed device and registry state plus the DSDT
+contents; the one link not directly traced is that Windows withholds `QCOM0C87`
+*specifically* because `\_SB.SPSS` is unresolved (inferred, not captured via
+ETW/WinDbg). The proof status of each element, and the validation steps that would
+confirm it, are stated in [§6](#limitations-and-proof-status) and [§11](#11--open-questions-untried-and-unproven-paths).
+It should be read as a strongly-supported hypothesis, not a vendor-grade proven fault.
 
 Four standard ACPI override mechanisms were tested and failed: the
 `HKLM\SYSTEM\CurrentControlSet\Control\acpitables` registry override with the
@@ -42,12 +49,18 @@ by a UEFI application, and that even the firmware's own
 `BootServices->InstallConfigurationTable()` service does not cause Windows to parse a
 replacement ACPI chain.
 
-With every in-band software path exhausted, only two out-of-band paths remain: a
-future Acer BIOS update for the NX.JP3ED.002 SKU that removes SPSS from QCSP's `_DEP`,
-or offline BIOS ROM modification with external tooling. Acer support offered Windows
-Update and the purchase of physical recovery media; neither addresses the
-firmware-level DSDT defect. The case remains open as of June 2026, with no Acer
-follow-up since the single 22 May 2026 reply.
+What is exhausted is specifically **in-band ACPI table injection from a UEFI boot
+application** — not every conceivable avenue. The two firmware *fix* routes are out of
+band (a future Acer BIOS update for NX.JP3ED.002 that removes SPSS from QCSP's `_DEP`,
+or offline BIOS ROM modification). Beyond them, a set of **untried** paths — both
+*validation* paths that would prove or refute the root cause (a factory-image
+comparison, an ETW/WinDbg `_DEP`-gate trace, a cross-device DSDT comparison, a
+live-kernel DSDT patch) and *candidate fixes* outside the UEFI-injection path (rEFInd,
+the UEFI Shell, an alternate ACPI protocol GUID, OS-side kernel circumvention) — are
+catalogued honestly in §11; none have been attempted and none are claimed to work. Acer
+support offered Windows Update and the purchase of physical recovery media; neither
+addresses the firmware-level DSDT defect. The case remains open as of June 2026, with no
+Acer follow-up since the single 22 May 2026 reply.
 
 ---
 
@@ -371,12 +384,23 @@ is examined in §6.
 
 ### Overview
 
-All remaining failures on the Acer A14-11M trace to a single circular dependency
-embedded in the DSDT shipped with the Insyde H2O firmware. The dependency forms a
-loop that Windows cannot resolve, blocking a critical security platform driver from
-ever loading. Because that driver publishes an interface that several subsystem
-drivers require, the loop propagates into at least 25 failing devices across audio,
-compute, thermal, GPU, and Bluetooth stacks.
+The **major Qualcomm subsystem cascade** on the Acer A14-11M traces to a single
+circular dependency embedded in the DSDT shipped with the Insyde H2O firmware. The
+dependency forms a loop that Windows cannot resolve, blocking a critical security
+platform driver (`qcsp.sys`) from ever loading. Because that driver publishes an
+interface (PIL TZ) that several subsystem drivers require, the loop propagates into
+the ADSP/CDSP/SPSS subsystems and, through them, the audio, compute, thermal-policy,
+GPU, and Bluetooth-radio stacks that depend on those subsystems.
+
+> **Scope of this claim.** What is established here is that the QCSP/SPSS deadlock
+> blocks the subsystem cascade above. A number of *secondary* device failures —
+> e.g. the ADC (`QCOM0C11`), UART bus device (`QCOM0C16`), Human Presence Sensor
+> (`QCOM06D9`), EVA (`QCOM0CF1`), ISP Camera Platform (`QCOM0C32`), and HID Button
+> (`ACPI0011`) — are listed in [`Driver_Reference_Map.md`](Driver_Reference_Map.md)
+> as still failing or "needs investigation." These are **not yet proven to be
+> downstream** of the QCSP/SPSS deadlock; some may have independent causes. Which of
+> them resolve once the deadlock is broken cannot be determined until the deadlock is
+> actually broken. See [§6 Limitations](#limitations-and-proof-status) below.
 
 ### The DSDT structure
 
@@ -410,9 +434,16 @@ successfully. Two of the three `_DEP` entries are satisfied.
 `\_SB.SPSS` is hardware ID `ACPI\QCOM0C8D`, the Qualcomm Secure Processor Subsystem.
 Its driver (`qcsubsys8380.inf` → `oem70.inf`) calls `AddDevice` successfully but
 fails at runtime with `CM_PROB_FAILED_ADD` (NTSTATUS `0xC000003B`,
-`STATUS_OBJECT_NAME_NOT_FOUND`). The root cause is that `qcsubsys.sys` attempts to
-open the PIL TZ device interface during initialization, and that interface is not
-present.
+`STATUS_OBJECT_NAME_NOT_FOUND`). The most probable cause is that `qcsubsys.sys`
+attempts to open the PIL TZ device interface during initialization, and that
+interface is not present.
+
+> **This link is inferred, not proven.** That `qcsubsys.sys` specifically opens the
+> PIL TZ interface during init is inferred from the `STATUS_OBJECT_NAME_NOT_FOUND`
+> status code and its correlation with the blank PIL TZ `Linked` value — not from
+> driver symbols, a disassembly of `qcsubsys.sys`, or an ETW/WinDbg trace. It is
+> highly plausible for a Qualcomm 8380 CRD board, but a reader should treat it as a
+> strongly-supported hypothesis rather than a verified fact.
 
 **Step 3: PIL TZ is the missing link.**
 The PIL TZ device interface is identified by the GUID
@@ -512,6 +543,31 @@ problematic dependency at source. Both `qcsp.sys` and SPSS can then start in seq
 Both approaches require modifying or replacing ACPI table content before the Windows
 bootloader reads it. Every mechanism for achieving this on Windows ARM64 / Insyde H2O
 V1.09 has been attempted and the results are examined in §7.
+
+### Limitations and proof status
+
+This root-cause model is **strongly indicated by correlated evidence, not proven to
+kernel-debugger standard.** To keep the claim honest, the table below separates what
+is established from what is inferred.
+
+| Element | Status | Basis |
+|---|---|---|
+| QCSP (`QCOM0C87`) is absent from PnP; SPSS (`QCOM0C8D`) fails `CM_PROB_FAILED_ADD`; PIL TZ `Linked` is blank | **Established** | Direct registry / `Get-PnpDevice` observation, reproducible |
+| The DSDT defines QCSP with `_DEP` on `\_SB.GLNK`, `\_SB.SOCP`, `\_SB.SPSS` | **Established** | Read from the live DSDT and disassembly (`iasl -d`) |
+| ACPI `_DEP` informs OSPM device start-ordering | **Established** | ACPI specification |
+| Windows holds `ACPI\QCOM0C87` *specifically because* `\_SB.SPSS` is unresolved | **Inferred (strongly indicated)** | Correlation of the observed states; **not** captured via ETW / Kernel-PnP trace or WinDbg |
+| `qcsubsys.sys` fails because it opens the (absent) PIL TZ interface during init | **Inferred** | NTSTATUS `STATUS_OBJECT_NAME_NOT_FOUND` + correlation; not from driver symbols or a trace |
+| Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred (untested end-to-end)** | Follows from the model; never executed, because no injection method on this firmware succeeded (§7–§8) |
+
+**What would turn this from "strongly indicated" into proof** — none of which has been
+done in this work, and all of which are recorded as open paths in [§11](#11--open-questions-untried-and-unproven-paths):
+
+- An **ETW / Kernel-PnP (or WinDbg) boot trace** showing Windows declining to start
+  `ACPI\QCOM0C87` because `\_SB.SPSS` is unresolved.
+- A **live-kernel DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a forced bus
+  rescan: if the deadlock breaks, the DSDT fix is proven sufficient.
+- A **factory-image comparison** establishing whether a working A14-11M uses the same
+  DSDT (firmware bug confirmed) or a different provisioning/order (software-side cause).
 
 ---
 
@@ -955,14 +1011,21 @@ firmware ACPI tables, and does not ship the OEM-provisioned driver store or the
 factory image. The failure profile documented in §3 persists across Windows
 Update cycles on this device.
 
-### The recovery media likely restores the working factory state
+### The recovery media probably restores the working factory state (hypothesis — untested)
 
-The Acer-supplied recovery media is the image the device shipped with. The device
-worked at unboxing. The factory state evidently includes OEM driver provisioning
-that is not reproducible from the public Acer driver packages — almost certainly
-including either a pre-staged `qcsp.sys` activation path or a different ACPI
-boot-time ordering that does not enter the deadlock. A factory restore from the
-recovery media would, in all likelihood, restore that working state.
+The Acer-supplied recovery media is the image the device shipped with, and the device
+worked at unboxing. From that, it is reasonable to *hypothesise* that the factory
+state includes OEM provisioning not reproducible from the public Acer driver packages
+— for example a pre-staged `qcsp.sys` activation path, or a different ACPI boot-time
+ordering that does not enter the deadlock — and that a factory restore would return
+the device to that working state.
+
+> **This is a hypothesis, not a tested result.** No factory image or recovery medium
+> was booted or compared against the clean-reinstall state in this work. It is equally
+> possible the factory image ships the *same* DSDT and avoids the deadlock purely
+> through driver-store provisioning or load order — or, less likely, that it does not
+> avoid the deadlock at all. The factory-image comparison that would settle this is
+> recorded as the highest-value open path in [§11](#11--open-questions-untried-and-unproven-paths).
 
 ### Why a paid recovery medium is not an acceptable remediation here
 
@@ -988,46 +1051,110 @@ software state.
 
 ---
 
-## §11 — Open questions
+## §11 — Open questions: untried and unproven paths
 
-Every in-band software path has now been exhausted (§7, §8). The probes that
-earlier drafts of this paper listed here as open — the MAP canary write (5m) and
-`BootServices->InstallConfigurationTable()` (5n/5o) — have all been run and
-failed; they are documented in §8. Two genuine paths remain, both out of band,
-plus the public disclosure this repository constitutes.
+What is exhausted is **in-band ACPI table injection from a UEFI boot application**
+(§7, §8): the registry/BCD override, ESP SSDTs, GRUB, the custom `AcpiInject.efi`
+(5a–5o), and `InstallConfigurationTable()`. That is a narrower statement than "every
+possible avenue." Several classes of approach were **not attempted** in this work —
+some that would *prove or refute* the root cause, and some that might *fix or work
+around* it from outside the UEFI-injection path.
 
-### Acer BIOS V1.10 or newer
+Everything in this section is explicitly **untried and/or unproven.** None of it has
+been executed; nothing here is a result. Items are recorded so that another
+investigator (or a future session) can pick them up, and so the boundary of what this
+paper actually establishes is unambiguous. Where a path rests on an assumption this
+work could not verify, that is stated.
 
-V1.09 is the latest available BIOS for NX.JP3ED.002 as of May 2026. A firmware
-update that removes `\_SB.SPSS` from QCSP's `_DEP` list would resolve the
-deadlock with no further software work. Check Acer's support page for this SKU
-periodically. Verification after applying a new BIOS: `ACPI\QCOM0C87` should
-appear in PnP and the PIL TZ `Linked` value should read `1`. Risk: low, assuming
-official Acer firmware.
+### 11a — Validation paths (would confirm or refute the root cause; do not fix it)
 
-### BIOS ROM modification with offline tooling
+- **Factory-image / recovery-media comparison — highest value.** Obtain Acer recovery
+  media or an untouched A14-11M factory install. *Before changing anything,* export
+  the ACPI tables (`HKLM\HARDWARE\ACPI`), `DeviceClasses`, the driver store mapping,
+  SetupAPI logs, and PnP state, and diff against the clean-reinstall state captured
+  here. If the working image carries the **same** DSDT, the missing piece is
+  provisioning / load order, not the firmware table; if the DSDT **differs**, the
+  firmware-table defect is confirmed independently. *Status: not attempted — no
+  factory image was booted or compared.* This also directly tests the §10 hypothesis.
+- **ETW / Kernel-PnP / WinDbg boot trace of the `_DEP` gate.** Capture
+  `Microsoft-Windows-Kernel-PnP`, ACPI, SetupAPI and driver-framework providers across
+  boot (or attach a kernel debugger) and catch Windows declining to start
+  `ACPI\QCOM0C87` because `\_SB.SPSS` is unresolved. This is the step that would turn
+  the §6 model from *strongly indicated* into *proven*. *Status: not attempted.*
+- **Live-kernel DSDT patch (also a fix-validation).** With a kernel debugger attached,
+  patch `_DEP[2]` SPSS→GLNK at `0x36C69` in the in-memory DSDT after `acpi.sys` maps
+  it but before PnP evaluates `_DEP`, then force a bus rescan. If the deadlock breaks,
+  the DSDT patch is *proven sufficient* without any persistent firmware change.
+  *Status: not attempted; feasibility depends on KD setup on this locked-down platform.*
+- **Cross-device DSDT comparison.** Compare DSDTs from other Snapdragon X 8380 /
+  `CRD08380` machines or other Acer BIOS revisions. The decisive question: does a
+  *working* board include `\_SB.SPSS` in QCSP's `_DEP`? If not, the Acer V1.09 table is
+  almost certainly the defect. *Status: not attempted — no second board was available.*
+- **Non-Windows ACPI dump.** Boot a Linux/WoA live environment far enough to run
+  `acpidump` or read `/sys/firmware/acpi/tables`, to confirm the firmware DSDT content
+  independent of Windows (and to see whether Linux tolerates the dependency
+  differently). *Status: not attempted.*
 
-If no firmware update is forthcoming and the in-band injection paths remain
-blocked, the remaining option is offline modification of the firmware image.
-The byte change is known: at the DSDT location inside the firmware ROM, replace
-`53 50 53 53` with `47 4C 4E 4B`. This requires extracting the firmware image
-from the SPI ROM with a programmer (or with an Insyde-specific update utility
-such as `H2OFFT`), unpacking the DSDT, patching it, re-checksumming, repacking,
-and reflashing. Risk: high. A failed reflash can brick the device. A verified
-working backup of the original firmware is required before any attempt.
+### 11b — Candidate fix/workaround paths not yet attempted
 
-### Public disclosure (this repository)
+These were surfaced as plausible but are **unverified for this board.** Each carries a
+caveat this work could not resolve.
 
-No existing public write-up matching the QCOM0C87/SPSS `_DEP` deadlock on the
-8380 CRD-class boards was found during this investigation. This repository is
-published as that disclosure: the full failure chain — the DSDT byte offsets, the
-fifteen-attempt UEFI injection log, and the read-only ACPI memory finding from §9
-— is documented here so that the next person who hits this deadlock after a clean
-reinstall does not have to re-derive it from scratch. If it reaches someone with
-a known workaround, a related-SKU fix, or Insyde firmware internals knowledge,
-all the better; but the primary goal is to make the dead ends and the one viable
-remaining path (a corrected BIOS) findable. Risk: none beyond public disclosure
-of research already contained in this repository.
+- **rEFInd bootloader ACPI loading.** `EFI_Injection_Tracking.md` lists rEFInd as a
+  "next step if `AcpiInject.efi` fails," but it was never tried. rEFInd is a signed,
+  mature EFI bootloader; the suggestion is that it performs protocol discovery and
+  memory allocation more correctly than a hand-built PE binary. *Caveat: rEFInd's
+  actual ability to inject/load an SSDT on ARM64 + Insyde H2O V1.09 is unverified here —
+  do not assume it works until tested.* *Status: not attempted.*
+- **UEFI Shell `acpiview` / table load.** Some Insyde firmwares are reported to expose
+  `EFI_ACPI_TABLE_PROTOCOL` to the Shell environment but not to arbitrary PE apps.
+  Trying the built-in Shell ACPI commands would test that. *Caveat: "Shell-only
+  exposure" is a general report, not something confirmed on this unit.* *Status: not
+  attempted.*
+- **Alternate / vendor-specific ACPI protocol GUID.** Only the standard
+  `EFI_ACPI_TABLE_PROTOCOL` GUID was used (and, in 5a–5g, the wrong GUID entirely —
+  §8). A brute-force scan of all installed protocols at boot — including the older
+  `{6DABB78A-FB9B-4DAB-8F83-E9DBE853AF76}` noted in `EFI_Injection_Tracking.md` — might
+  reveal an Insyde-specific injection interface. *Status: not attempted.*
+- **Windows kernel-side circumvention.** Rather than touch ACPI at all: an ACPI filter
+  driver that publishes the PIL TZ interface (or fakes the dependency) before
+  `qcsubsys.sys` requests it; a phantom `QCOM0C87` devnode via `IoReportDetectedDevice`
+  to load `qcsp.sys` ahead of ACPI enumeration; or documented-but-unofficial registry
+  overrides under `HKLM\SYSTEM\CurrentControlSet\Enum\ACPI` / `...\Services`. *Caveat
+  this work treats as decisive: all kernel-driver paths require a signed or test-signed
+  driver, and **HVCI is ON** on this device (Secure Boot was toggled off only for ACPI
+  testing) — so these are materially harder than they appear and may be blocked
+  outright.* *Status: not attempted.*
+- **Offline boot-start staging of `qcsp.sys`.** An offline DISM apply was observed to
+  produce the same failure state, but staging `qcsp.sys` as a boot-start driver
+  (`Start = 0`) or otherwise manipulating driver-store load order — to publish PIL TZ
+  before ACPI device enumeration — was not tried. *Caveat: it is unknown whether
+  boot-start changes the PnP `_DEP` gate at all.* *Status: not attempted.*
+
+### 11c — Out-of-band fix paths (the firmware routes)
+
+- **Acer BIOS V1.10 or newer.** V1.09 is the latest available for NX.JP3ED.002 as of
+  May 2026. A firmware update that removes `\_SB.SPSS` from QCSP's `_DEP` would resolve
+  the deadlock with no further software work. Verification after a new BIOS:
+  `ACPI\QCOM0C87` appears in PnP and PIL TZ `Linked` reads `1`. Risk: low (official
+  firmware). *Status: not available as of this writing.*
+- **Offline BIOS ROM modification (H2OFFT / UEFITool).** The byte change is known:
+  inside the firmware image, replace the DSDT `_DEP[2]` `53 50 53 53` ("SPSS") with
+  `47 4C 4E 4B` ("GLNK"). Requires extracting the image from SPI ROM (or via an
+  Insyde update utility), unpacking and patching the DSDT, re-checksumming, repacking,
+  and reflashing. Risk: **high — a failed reflash can brick the device**; a verified
+  full firmware backup and an external recovery path are required first. *Status: not
+  attempted.*
+
+### 11d — Public disclosure (this repository)
+
+No existing public write-up matching the QCOM0C87/SPSS `_DEP` deadlock on the 8380
+CRD-class boards was found during this investigation. This repository is published as
+that disclosure: the failure chain, the DSDT byte offsets, the fifteen-attempt UEFI
+injection log, and the read-only ACPI memory finding (§9) are documented here so the
+next person who hits this deadlock does not have to re-derive it. If it reaches someone
+with a known workaround, a related-SKU fix, or Insyde firmware internals knowledge, all
+the better. Risk: none beyond disclosure of research already in this repository.
 
 ---
 

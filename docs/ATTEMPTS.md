@@ -67,14 +67,35 @@ Additionally, no diagnostic mechanism works:
 - File I/O from UEFI app: blocked (USB SFS not enumerated; NVMe ESP SFS refuses CREATE)
 - UEFI NVRAM variables: blocked for all variables (error 1314)
 
-Every in-band software path (5a–5o) is now exhausted.
+Every **in-band ACPI-injection path from a UEFI boot app** (5a–5o) is now exhausted.
+That is narrower than "every avenue" — see the untried validation and OS-side paths
+below.
 
 ---
 
-## Remaining paths (out of band)
+## Remaining out-of-band fix paths
 
 | ID | Approach | Risk | Notes |
 |---|---|---|---|
 | — | Acer BIOS V1.10+ | None (official firmware) | Resolves the bug with zero further software work if Acer ships a BIOS removing SPSS from QCSP's `_DEP`. Check Acer support page for NX.JP3ED.002; V1.09 is latest as of May 2026 |
 | — | BIOS ROM mod (UEFITool / Insyde tools) | High (brick risk) | Edit the DSDT `_DEP` (SPSS→GLNK at offset 0x36C69) inside the firmware image and reflash; requires a verified firmware backup |
-| — | Public disclosure (this repository) | None | The full failure chain is published here so others hitting this deadlock need not re-derive it |
+
+## Untried / unproven paths (not attempted)
+
+These were **not attempted** in this work. None is a result; none is claimed to work.
+Full detail and caveats in [`FINDINGS.md §11`](FINDINGS.md).
+
+| Group | Path | Would establish / do |
+|---|---|---|
+| Validation | Factory-image / recovery-media diff | Whether a working A14-11M uses the same DSDT (firmware bug) or different provisioning (software cause) — **highest value** |
+| Validation | ETW / Kernel-PnP or WinDbg `_DEP`-gate trace | Turns the §6 model from *strongly indicated* into proven |
+| Validation | Live-kernel DSDT patch (SPSS→GLNK) + bus rescan | Proves the DSDT fix is sufficient without persistent firmware change |
+| Validation | Cross-device DSDT comparison; non-Windows `acpidump` | Whether a working board includes SPSS in QCSP's `_DEP`; firmware table content independent of Windows |
+| Candidate fix | rEFInd ACPI loading; UEFI Shell `acpiview`; alternate ACPI protocol GUID (`{6DABB78A-…}`) | Bootloader/Shell/alternate-protocol injection — capability on this firmware unverified |
+| Candidate fix | Windows kernel-side (ACPI filter driver / phantom devnode / registry override) | OS-side circumvention — caveated by HVCI + driver signing |
+| Candidate fix | Offline boot-start staging of `qcsp.sys` | Load PIL TZ publisher before ACPI enumeration — effect on `_DEP` gate unknown |
+
+## Public disclosure
+
+This repository publishes the full failure chain so others hitting this deadlock need
+not re-derive it.

@@ -199,7 +199,7 @@ The only working approach is a UEFI application that calls **`EFI_ACPI_TABLE_PRO
   - `GetFirmwareEnvironmentVariableW("AcpiLog", ...)` returned **error 1314** even elevated with `SeSystemEnvironmentPrivilege` present in token
   - `BootOrder` (standard UEFI variable) also returned error 1314 — confirmed: Qualcomm/Insyde on this device blocks UEFI runtime variable services from Windows entirely. SetVariable logging is permanently dead.
   - `HKLM\HARDWARE\ACPI\SSDT` contains only `Compal` — our SSDT was never injected
-  - **Root cause:** `EFI_ACPI_TABLE_PROTOCOL` is absent or rejected InstallAcpiTable on this firmware. Protocol-based injection is exhausted.
+  - **Root cause:** `EFI_ACPI_TABLE_PROTOCOL` could not be used from this boot app. Whether the protocol is genuinely absent or merely rejected `InstallAcpiTable` cannot be cleanly distinguished, because builds through 5g queried the wrong protocol GUID (the Absolute Pointer GUID — see the wrong-GUID note) and no UEFI-side diagnostic channel survived by the time the GUID was corrected. Protocol-based injection *via this app* is exhausted; the protocol's true state on V1.09 is unconfirmed.
 
 ---
 

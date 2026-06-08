@@ -100,7 +100,7 @@ the internal NVMe.
 | `HKLM\...\acpitables` registry + `ACPIOVERRIDETEST` BCD | x86/BIOS only; ignored on ARM64 UEFI |
 | SSDT files in ESP (`S:\EFI\ACPI\`, etc.) | Insyde firmware does not load them |
 | GRUB2 `acpi` module + chainloader | Modifies XSDT in RAM but does not update EFI ConfigurationTable RSDP pointer; Windows ARM64 ignores it |
-| `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | Protocol absent or rejected on Insyde H2O V1.09 |
+| `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | Not usable from this boot app; absent-vs-rejected unresolved (builds 5a–5g used the wrong protocol GUID) |
 | Direct XSDT append in EfiACPIMemoryNVS | RSDP->XsdtAddress is in read-only firmware memory; write silently dropped |
 | DSDT in-place patch without unprotect | DSDT pages also read-only; write silently dropped |
 | `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` + DSDT patch | MAP protocol absent or also blocked; DSDT unchanged (canary confirmed, 5m) |

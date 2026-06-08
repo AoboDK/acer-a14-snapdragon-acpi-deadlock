@@ -83,7 +83,8 @@ ACPI `_DEP` deadlock at the firmware level (see root-cause section below).
 
 ## Root cause: circular ACPI `_DEP` deadlock
 
-The ADSP/CDSP/Bluetooth/audio/GPU failures all trace back to one circular
+The **major Qualcomm subsystem cascade** — ADSP/CDSP/SPSS, and through them audio,
+Bluetooth radio, GPU, and the thermal-policy cluster — traces to one circular
 dependency in the ACPI tables shipped with this firmware:
 
 ```
@@ -94,6 +95,15 @@ QCSP device (ACPI\QCOM0C87) has _DEP on \_SB.SPSS
   -> QCSP not presented because Windows holds back devices with unsatisfied _DEP
   -> deadlock
 ```
+
+> **Proof status.** The observed states (QCSP absent, SPSS failing, PIL TZ blank) and
+> the DSDT `_DEP` are directly established. The step "Windows holds QCSP back
+> *specifically because* `\_SB.SPSS` is unresolved" is **strongly indicated but
+> inferred** — it has not been captured with an ETW/Kernel-PnP or WinDbg trace. Some
+> *secondary* device failures (ADC, UART, HPS, EVA, ISP camera, HID Button) are listed
+> as "needs investigation" and are **not yet proven** to be downstream of this
+> deadlock. See [`docs/FINDINGS.md` §6 Limitations](docs/FINDINGS.md) and
+> [§11](docs/FINDINGS.md).
 
 Breaking the deadlock requires injecting a stub ACPI SSDT table that creates a
 dependency-free version of the QCSP device (HID `QCOM0C87`, no `_DEP`) so that
@@ -109,7 +119,7 @@ dependency-free version of the QCSP device (HID `QCOM0C87`, no `_DEP`) so that
 | SSDT files in ESP (`S:\EFI\ACPI\`, etc.) | Insyde firmware on this board does not load them |
 | DSDT binary patch via `acpitables` | Same registry mechanism — dead on ARM64 |
 | GRUB2 `acpi` module + chainloader | GRUB modifies XSDT in RAM but does not update the EFI ConfigurationTable RSDP pointer; Windows ARM64 ignores it |
-| `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | Protocol absent or rejected on Insyde H2O V1.09 |
+| `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | Not usable from the tested boot app; absent-vs-rejected unresolved (builds 5a–5g used the wrong protocol GUID — see §8) |
 | Direct XSDT modification (write `RSDP->XsdtAddress`) | RSDP is in firmware read-only memory; write silently dropped |
 | DSDT in-place byte patch | DSDT pages also read-only; write silently dropped |
 | `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` + patch | MAP protocol absent or blocked; DSDT unchanged |
@@ -132,7 +142,7 @@ full attempt log (5a through 5o).
 | 5a–5c | GRUB chainloader → AcpiInject.efi | Shim security hook blocked; PE loader rejected (wrong headers) |
 | 5d | Fixed PE headers (NumDirEntries=16, DllChars=0x0100) | Binary ran — but SSDT never appeared |
 | 5e–5g | Debug logging (file, NVRAM variable) | All I/O blocked: SFS write-protected, NVRAM vars blocked (error 1314) |
-| 5h | `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | Protocol absent or rejected; SSDT never in `HKLM\HARDWARE\ACPI\SSDT` |
+| 5h | `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | SSDT never in `HKLM\HARDWARE\ACPI\SSDT`; absent-vs-rejected not cleanly distinguishable (5a–5g used the wrong GUID) |
 | 5i–5j | Direct XSDT append in EfiACPIMemoryNVS | RSDP->XsdtAddress write silently dropped (RSDP is read-only firmware memory) |
 | 5k | DSDT in-place byte patch | DSDT pages also write-protected; write silently dropped |
 | 5l | `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` before DSDT patch | MAP protocol absent or also blocked; DSDT unchanged |
@@ -143,16 +153,27 @@ full attempt log (5a through 5o).
 **Current status (after Attempt 5o, June 2026):** All software-only injection
 paths are exhausted. The RSDP, XSDT, and DSDT all reside in firmware-managed
 read-only memory pages on this Qualcomm/Insyde platform. `EFI_ACPI_TABLE_PROTOCOL`
-is absent or non-functional. UEFI runtime variable services are fully blocked from
-Windows (error 1314 for all variables including `BootOrder`). Even the firmware's
-own `InstallConfigurationTable()` service does not cause Windows to parse a
-replacement ACPI chain. No in-band software mechanism remains.
+could not be used from the tested boot app — and whether it is genuinely absent or
+merely rejected the call was never cleanly determined, because builds 5a–5g queried
+the wrong protocol GUID (see [`docs/FINDINGS.md` §8](docs/FINDINGS.md)). UEFI runtime
+variable services are fully blocked from Windows (error 1314 for all variables
+including `BootOrder`). Even the firmware's own `InstallConfigurationTable()` service
+does not cause Windows to parse a replacement ACPI chain. No **in-band ACPI-injection**
+mechanism from a UEFI boot app remains; out-of-band and OS-side paths are catalogued
+as untried in [`docs/FINDINGS.md` §11](docs/FINDINGS.md).
 
-**Remaining paths (both out of band):**
+**Remaining paths.** What is exhausted is *in-band ACPI injection from a UEFI boot
+app* — not every avenue. The two firmware fix routes are out of band:
 1. **BIOS update** — check Acer for V1.10+ for NX.JP3ED.002 that removes SPSS from
    QCSP's `_DEP`. Zero further software work if shipped. V1.09 is latest as of May 2026.
 2. **BIOS ROM modification** via UEFITool / Insyde tools — patch the DSDT `_DEP`
    inside the firmware image and reflash. High risk; requires a verified backup.
+
+Beyond those, several **untried** paths — validation (factory-image diff, ETW/WinDbg
+proof, cross-device DSDT compare, live-kernel DSDT patch) and candidate fixes (rEFInd,
+UEFI Shell, alternate ACPI protocol GUID, kernel-side filter/phantom-devnode) — are
+catalogued honestly, with their caveats, in [`docs/FINDINGS.md` §11](docs/FINDINGS.md).
+None have been attempted; none are claimed to work.
 
 This repository is itself the public disclosure of the full failure chain, so the
 next person hitting this deadlock does not have to re-derive it.

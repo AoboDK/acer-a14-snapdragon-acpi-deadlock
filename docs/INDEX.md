@@ -127,10 +127,13 @@ Topics in reading order, not alphabetical. Each entry names where the topic is
 - **Why it matters:** the hooks where the community or other researchers can
   pick up the work. Each entry includes what evidence would distinguish
   success and the principal risks.
-- **Defined in:** [`FINDINGS.md §11`](FINDINGS.md) — the two remaining out-of-band
-  paths (Acer BIOS update; offline BIOS ROM mod) plus public disclosure, after all
-  in-band software paths (5a–5o) were exhausted.
-- **Referenced in:** [`ATTEMPTS.md`](ATTEMPTS.md) "Remaining paths" table.
+- **Defined in:** [`FINDINGS.md §11`](FINDINGS.md) — four groups, all untried/unproven:
+  (a) validation paths that would prove/refute the root cause, (b) candidate fixes
+  outside UEFI injection, (c) out-of-band firmware fixes, (d) public disclosure. What
+  was exhausted is *in-band ACPI injection from a UEFI boot app* (5a–5o), not every
+  avenue.
+- **Referenced in:** [`ATTEMPTS.md`](ATTEMPTS.md) "Remaining paths" table;
+  [`FINDINGS.md §6 Limitations`](FINDINGS.md) (proof status).
 
 ---
 
@@ -204,19 +207,26 @@ rather than `{FFE06BDD-6107-46A6-7BB2-5A9C7EC5275C}` (`EFI_ACPI_TABLE_PROTOCOL`)
 This means 5a–5g would not have located the ACPI protocol even if present.
 Corrected before 5h. → [`AcpiInject_Findings.md`](AcpiInject_Findings.md).
 
-### Remaining paths (both out of band)
+### Remaining paths
 
-Every in-band software path has been attempted and failed (5a–5o). Only two
-out-of-band paths remain, plus the public disclosure this repository constitutes.
+What is exhausted is **in-band ACPI injection from a UEFI boot app** (5a–5o) — not
+every avenue. The full, honestly-labeled catalogue (all untried/unproven) is in
+[`FINDINGS.md §11`](FINDINGS.md), in four groups:
 
-- **Acer BIOS V1.10 or newer** — would resolve the bug with zero further work
-  if Acer ships a BIOS that removes SPSS from QCSP's `_DEP`. V1.09 is the
-  latest as of May 2026.
-- **BIOS ROM modification** — extract DSDT from SPI ROM, patch offline,
-  reflash via Insyde tooling. High-risk; requires verified backup.
-- **Public disclosure (this repository)** — no prior public write-up matched the
-  QCOM0C87/SPSS `_DEP` deadlock; this repo documents the full failure chain so
-  others need not re-derive it. → [`FINDINGS.md §11`](FINDINGS.md).
+- **§11a Validation paths** (prove/refute the root cause, do not fix) — factory-image
+  comparison (highest value), ETW/Kernel-PnP or WinDbg `_DEP`-gate trace, live-kernel
+  DSDT patch, cross-device DSDT comparison, non-Windows `acpidump`. *None attempted.*
+- **§11b Candidate fixes not yet attempted** — rEFInd ACPI loading, UEFI Shell
+  `acpiview`, alternate/vendor ACPI protocol GUID (`{6DABB78A-…}`), Windows kernel-side
+  circumvention (filter driver / phantom devnode / registry override — caveated by
+  HVCI/driver-signing), offline boot-start staging of `qcsp.sys`. *None attempted;
+  none claimed to work.*
+- **§11c Out-of-band firmware fixes** — Acer BIOS V1.10+ (V1.09 latest as of May 2026,
+  low risk) and offline BIOS ROM modification (UEFITool/H2OFFT, high brick risk,
+  backup required).
+- **§11d Public disclosure (this repository)** — no prior public write-up matched the
+  QCOM0C87/SPSS `_DEP` deadlock; this repo documents the full failure chain so others
+  need not re-derive it.
 
 ---
 
