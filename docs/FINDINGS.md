@@ -560,7 +560,7 @@ is established from what is inferred.
 | `ACPI\QCOM0C87` was never presented to the PnP manager as an ACPI device | **Established** | Kernel-PnP/Configuration log (732 events, all boots): zero events for `ACPI\QCOM0C87`; setupapi.dev.log: no entry for `ACPI\QCOM0C87` as a hardware-initiated device install; `HKLM\...\Enum\ACPI` has no QCOM0C87 subkey (Session 49, 2026-06-08) |
 | Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated, with new live in-memory corroboration — acpi.sys decision itself still not directly captured** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior. A full-boot WPR/ETW trace with `Kernel-Acpi`, `ACPI Driver Trace Provider`, `Kernel-PnP`, and `Kernel-Boot` enabled captured **zero events from any of the four** during the failure window (Session 50, 2026-06-08) — confirming the acpi.sys `_DEP`-gate decision is not observable via ETW on this system, not merely "not yet captured." Local kernel debugging (Session 51, 2026-06-08) then directly inspected the live SPSS device object in kernel memory and found `ExtensionFlags = DOE_START_PENDING` — a first-hand, in-memory observation that the device's start is being held pending right now, exactly as the model predicts (rather than an after-the-fact log record of a past decision). It does not, by itself, name *which* dependency is doing the gating — that would require locating the in-memory `_DEP`/QCSP-naming structure, which a small-window kernel-memory string search for `QCOM0C87`/`QCSP`/`\_SB.QCSP` did not find (see §11) |
 | `qcsubsys.sys` fails because it opens the (absent) PIL TZ interface during init | **Inferred** | NTSTATUS `STATUS_OBJECT_NAME_NOT_FOUND` + correlation; not from driver symbols or a trace |
-| Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred (untested end-to-end)** | Follows from the model; never executed, because no injection method on this firmware succeeded (§7–§8) |
+| Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred — raw-AML live patch tested and insufficient; UEFI-time fix untested with correct MAP GUID** | Session 52 (2026-06-09): DSDT pool copy at physical `0xD4781018` located, `53 50 53 53` ("SPSS") confirmed at offset `0x36C69`, physical write succeeded (bytes changed to "GLNK"), checksum fixed. `pnputil /scan-devices` rescan: all three oracles unchanged. Result: `acpi.sys` uses a pre-parsed namespace cache for `_DEP` — raw AML bytes are read once at boot and not re-interpreted on rescan. The UEFI-time fix (D8: MAP unprotect + DSDT patch before `ExitBootServices`) and a boot-time kernel-driver interception remain untested. |
 
 **What would turn "Windows holds QCSP because SPSS is unresolved" from strongly
 indicated into proven** — still not done, still recorded as open paths in
@@ -592,8 +592,12 @@ indicated into proven** — still not done, still recorded as open paths in
   around `qcsubsys8380.sys` pool allocations or PnP-manager structures) if their
   addresses can be obtained without triggering the `lm`/symbol-resolution hang. See
   SESSION_LOG Session 51 for the full analysis.
-- A **live-kernel DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a forced bus
-  rescan: if the deadlock breaks, the DSDT fix is proven sufficient.
+- ~~A **live-kernel raw-AML DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a
+  forced bus rescan~~ — **attempted, insufficient (Session 52, 2026-06-09).** The DSDT
+  pool copy at physical `0xD4781018` was located, bytes confirmed, write succeeded.
+  Rescan oracle: unchanged. `acpi.sys` uses a pre-parsed namespace cache — raw AML
+  patches after boot have no effect on `_DEP` evaluation. Boot-time interception or
+  UEFI-time fix (D8, correct MAP GUID) remain open. See SESSION_LOG Session 52.
 - A **factory-image comparison** establishing whether a working A14-11M uses the same
   DSDT (firmware bug confirmed) or a different provisioning/order (software-side cause).
 
@@ -1148,16 +1152,23 @@ work could not verify, that is stated.
   summary in `diagnostic-captures/` (gitignored); full analysis in SESSION_LOG Session
   50. *Status: Kernel-PnP static capture done; WPR boot trace attempted and closed —
   this avenue cannot promote the root-cause model to "proven."*
-- **Live-kernel DSDT patch (also a fix-validation).** With a kernel debugger attached,
-  patch `_DEP[2]` SPSS→GLNK at `0x36C69` in the in-memory DSDT after `acpi.sys` maps
-  it but before PnP evaluates `_DEP`, then force a bus rescan. If the deadlock breaks,
-  the DSDT patch is *proven sufficient* without any persistent firmware change.
-  *Status: KD setup feasibility is now resolved — Session 51 (2026-06-08) successfully
-  enabled and used local kernel debugging (`bcdedit /debug on` + `kdARM64.exe -kl`) on
-  this exact locked-down platform (HVCI/Secure Boot ON) without issue. The patch
-  itself remains not attempted — it requires locating the in-memory DSDT mapping and
-  intercepting at the right point in the boot sequence, a materially harder task than
-  the read-only inspection done so far.*
+- ~~**Live-kernel raw-AML DSDT patch (fix-validation)**~~ — **attempted; raw-AML patch
+  is insufficient (Session 52, 2026-06-09).** DSDT pool copy located at physical
+  `0xD4781018` (Windows updates X_DSDT in FADT to point to a non-paged pool copy;
+  the `+0x18` byte offset = standard pool header). `!db` confirmed `53 50 53 53`
+  ("SPSS") at physical `0xD47B7C81` (= `0xD4781018 + 0x36C69`). `!eb` physical-memory
+  writes succeeded — pool copy is writable. Bytes changed to "GLNK", checksum fixed.
+  `pnputil /scan-devices` rescan: all three oracles unchanged (QCOM0C87 absent, QCOM0C8D
+  failing, PIL TZ not linked). Conclusion: `acpi.sys` builds the ACPI namespace from
+  raw AML **once at boot** and evaluates `_DEP` from the cached parsed Package object
+  thereafter — not by re-reading AML bytes. A rescan does not re-parse the AML; patching
+  the raw bytes after boot has no effect on device enumeration.
+  The DSDT pool copy resets on reboot (volatile allocation). **What remains:**
+  (a) UEFI-time fix: D8 with corrected MAP GUID — clear DSDT page protection and patch
+  *before* `ExitBootServices`, so Windows parses the corrected AML at boot; (b)
+  boot-time kernel interception: a signed driver that hooks `acpi.sys` before namespace
+  build (HVCI/Secure Boot ON — requires WHQL or a co-signed driver). Both remain
+  untested. Full analysis in SESSION_LOG Session 52.
 - **Live local-kernel-memory inspection — attempted, partially successful (Session 51,
   2026-06-08).** With local kernel debugging enabled and `kdARM64.exe -kl` attached,
   the live SPSS device object (`PDO 0xffffbd0ebd52cd50`, owned solely by `\Driver\ACPI`
