@@ -498,3 +498,51 @@ Lower confidence / not proven yet:
 ## Final verdict
 
 The current build is almost certainly not testing the real ACPI injection path yet, because it is not locating `EFI_ACPI_TABLE_PROTOCOL`. It is locating the wrong GUID. Fix the GUID first, keep the `MEM_WRITE` section flag, then retest without GRUB in the boot path.
+
+---
+
+## Finding 2 — Second wrong-GUID bug: MAP_GUID in Attempts 5l/5m (audit 2026-06-09)
+
+### Code
+
+```python
+# build_efi.py lines 106-107 (as written for 5l/5m)
+MAP_GUID  = pack_guid(0x6A7A5CFF, 0xE8D9, 0x4F70,
+                      0xBA, 0xDA, 0x75, 0xAB, 0x30, 0x25, 0xCE, 0x14)
+```
+
+### Why this is wrong
+
+`{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` is **`EFI_COMPONENT_NAME2_PROTOCOL_GUID`**,
+not `EFI_MEMORY_ATTRIBUTE_PROTOCOL`. This is verified against:
+- EDK2 `MdePkg/Include/Protocol/MemoryAttribute.h` — correct GUID is
+  `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`
+- `EFI_COMPONENT_NAME2_PROTOCOL` source:
+  https://github.com/theopolis/uefi-firmware-parser/blob/master/uefi_firmware/guids/efiguids.py
+
+`EFI_COMPONENT_NAME2_PROTOCOL` is essentially always registered on any UEFI firmware
+(used by all standard drivers to expose human-readable names). `LocateProtocol` with
+this GUID almost certainly *succeeded* in 5l/5m, and the code then called
+`ComponentName2->GetDriverName()` (or similar) at MAP's vtable offsets — invoking an
+unrelated function, not `ClearMemoryAttributes()`.
+
+### Consequence
+
+The results of 5l and 5m are invalid, exactly parallel to the 5a–5g ACPI GUID bug:
+
+- 5l's conclusion "MAP absent or also blocked for ACPI memory" is **not supported**.
+- 5m's conclusion "DSDT direct-write path confirmed permanently closed" is **not supported**.
+- `EFI_MEMORY_ATTRIBUTE_PROTOCOL` has **never been tested** on this firmware.
+
+### Correct fix (applied 2026-06-09)
+
+```python
+# EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID {F4560CF6-40EC-4B4A-A192-BF1D57D0B189} (UEFI 2.10)
+MAP_GUID  = pack_guid(0xF4560CF6, 0x40EC, 0x4B4A,
+                      0xA1, 0x92, 0xBF, 0x1D, 0x57, 0xD0, 0xB1, 0x89)
+```
+
+Fixed in `build_efi.py` as of 2026-06-09. A proper retest (D8) is required:
+call `LocateProtocol` for this GUID, print the EFI_STATUS via `ConOut`, and if
+found call `GetMemoryAttributes()` then `ClearMemoryAttributes()` on the DSDT
+pages, printing each return status explicitly before attempting the byte patch.

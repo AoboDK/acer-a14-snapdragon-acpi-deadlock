@@ -387,13 +387,23 @@ Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceClasses\$guid" -Recu
 
 ---
 
-### Attempt 5l — Sub-attempt: EFI_MEMORY_ATTRIBUTE_PROTOCOL unprotect before DSDT patch (Session 40)
+### Attempt 5l — Sub-attempt: EFI_MEMORY_ATTRIBUTE_PROTOCOL unprotect before DSDT patch (Session 40) — **INVALID: wrong GUID**
+
+> **Audit note (2026-06-09):** The GUID used (`{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`) is
+> **`EFI_COMPONENT_NAME2_PROTOCOL`**, not `EFI_MEMORY_ATTRIBUTE_PROTOCOL`. The correct MAP GUID
+> is `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}` (EDK2 `MdePkg/Include/Protocol/MemoryAttribute.h`).
+> `LocateProtocol` most likely succeeded against Component Name 2 (essentially always present) and
+> the code called that protocol's vtable at MAP's offsets — invoking an unrelated function. This is
+> the same class of error as the 5a–5g `EFI_ACPI_TABLE_PROTOCOL` wrong-GUID bug. **5l/5m results
+> are INVALID; MAP was never tested.** Correct GUID fixed in `build_efi.py` 2026-06-09.
+
 - **Root cause of 5k failure:** DSDT pages are read-only in EFI page tables. Writes silently dropped
   without causing a fault. Same protection as RSDP region. The entire ACPI table chain is in
   firmware-managed read-only memory.
 - **Fix:** Before writing to DSDT, call `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` to
   clear `EFI_MEMORY_RO (0x20000)` on the DSDT pages, making them writable.
-- **Protocol GUID:** `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` (UEFI 2.10 spec)
+- **Protocol GUID (WRONG — see audit note):** `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` — this is `EFI_COMPONENT_NAME2_PROTOCOL`
+- **Correct MAP GUID:** `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}` (UEFI 2.10, EDK2-verified)
 - **Protocol vtable offsets:** GetMemoryAttributes=+0, SetMemoryAttributes=+8, ClearMemoryAttributes=+16
 - **Algorithm:**
   1. Walk ConfigurationTable → RSDP (read) → XSDT (read) → FADT (read) → X_DSDT → dsdt_phys
@@ -411,10 +421,8 @@ Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceClasses\$guid" -Recu
   - `DSDT[0x36C69]` = `53 50 53 53` ("SPSS") — patch did NOT apply
   - `QCOM0C87` absent from PnP, PIL TZ `Linked` blank, ADSP/CDSP/SPSS all `CM_PROB_FAILED_ADD` — unchanged
   - Non-OK device count: **40** — unchanged
-  - **Root cause:** `EFI_MEMORY_ATTRIBUTE_PROTOCOL` (MAP) was either (a) absent from this Insyde H2O V1.09
-    firmware (predates UEFI 2.10), or (b) present but `ClearMemoryAttributes` also silently failed on
-    the firmware-protected ACPI pages. Both paths produce identical output — cannot distinguish from
-    Windows-side observation alone. A diagnostic canary write (Attempt 5m) is needed to separate the cases.
+  - **Root cause:** INVALID RESULT — wrong GUID used (see audit note above). The observation
+    "DSDT unchanged" does not establish MAP absent or non-functional. Retest required (D8).
   - **Baseline:** `baselines\A14_AfterAttempt5l_<timestamp>.csv`
 
 **Post-boot diagnostic results (Session 41):**
@@ -428,7 +436,12 @@ CHECK 5: 40 non-OK devices — identical to pre-5l
 
 ---
 
-### Attempt 5m — Sub-attempt: MAP diagnostic with canary write (Sessions 46–47)
+### Attempt 5m — Sub-attempt: MAP diagnostic with canary write (Sessions 46–47) — **INVALID: wrong GUID (same as 5l)**
+
+> **Audit note (2026-06-09):** Same wrong-GUID bug as 5l applies here — MAP was never invoked.
+> The unchanged canary does not establish MAP absent or ClearMemoryAttributes non-functional.
+> The conclusion "DSDT direct-write path is confirmed permanently closed" is withdrawn.
+
 - **Goal:** Definitively determine whether MAP protocol (`EFI_MEMORY_ATTRIBUTE_PROTOCOL`) is absent
   or present-but-also-blocked by testing a canary write to a safe DSDT header field.
 - **Canary target:** `DSDT[0x20..0x23]` = CreatorRevision header field.
@@ -444,19 +457,18 @@ CHECK 5: 40 non-OK devices — identical to pre-5l
   - Boot visual: ~3-second stall observed before Windows loaded (confirms app ran to `phase2:`)
   - `DSDT[0x20..0x23]` = `00 00 00 05` — **unchanged** from pre-boot baseline (`00 00 00 05`)
   - `DSDT[0x36C69]` = `53 50 53 53` ("SPSS") — patch not applied
-  - **Conclusion:** DSDT writes are permanently silently dropped even after
-    `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` is called.
-    `EFI_MEMORY_ATTRIBUTE_PROTOCOL` (GUID `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`, UEFI 2.10 spec)
-    is absent on Insyde H2O V1.09 or `ClearMemoryAttributes` also fails silently on firmware-managed
-    ACPI pages. **DSDT direct-write path is confirmed permanently closed.**
+  - **Conclusion (revised 2026-06-09):** INVALID — wrong GUID used (see audit note). Stall
+    observed confirms app ran, but unchanged canary does not establish MAP absent or
+    ClearMemoryAttributes non-functional. "DSDT direct-write path permanently closed" withdrawn;
+    retest with correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}` required (D8).
   - Baseline: `baselines\A14_Baseline_<timestamp>_Post5m.csv`
 
 ---
 
 ### Attempt 5n — Sub-attempt: BootServices->InstallConfigurationTable() (Session 47, PLANNED)
-- **Root cause of all 5k/5l/5m failures:** DSDT, RSDP, and all firmware ACPI table memory is
-  in hardware-enforced read-only pages. MAP protocol absent or non-functional. No direct write
-  will ever succeed regardless of which byte we target.
+- **Root cause of 5k failure and rationale for 5n:** DSDT, RSDP, and all firmware ACPI table
+  memory appears to be in read-only pages. 5l/5m were intended to test MAP but used the wrong
+  GUID and are invalid (see audit notes). Whether MAP can lift the protection is still unknown.
 - **New approach:** Instead of writing to protected firmware memory, call the firmware's own
   `BootServices->InstallConfigurationTable()` to atomically replace the ACPI 2.0 GUID entry in
   `SystemTable->ConfigurationTable[]` with a pointer to a fully fresh NVS-allocated RSDP.

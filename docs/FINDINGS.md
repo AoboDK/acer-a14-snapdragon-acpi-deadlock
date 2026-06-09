@@ -848,32 +848,44 @@ checksum. After reboot, the live DSDT at
 `53 50 53 53` at offset `0x36C69`. DSDT pages are write-protected on the same
 basis as RSDP.
 
-### 5l — `EFI_MEMORY_ATTRIBUTE_PROTOCOL` unprotect then patch (Sessions 40–41)
+### 5l — `EFI_MEMORY_ATTRIBUTE_PROTOCOL` unprotect then patch (Sessions 40–41) — **INVALID: wrong GUID**
+
+> **Audit note (2026-06-09):** The GUID used in this attempt was
+> `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`, which is **`EFI_COMPONENT_NAME2_PROTOCOL`**
+> — not `EFI_MEMORY_ATTRIBUTE_PROTOCOL`. The correct MAP GUID is
+> `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}` (verified against EDK2 master
+> `MdePkg/Include/Protocol/MemoryAttribute.h`). Because `EFI_COMPONENT_NAME2_PROTOCOL`
+> is essentially always registered, `LocateProtocol` most likely succeeded and the code
+> called that protocol's vtable at MAP's function offsets — invoking an unrelated
+> function, not `ClearMemoryAttributes()`. This is the same class of error as the
+> already-documented 5a–5g wrong-GUID bug. **The results of 5l and 5m are invalid;
+> `EFI_MEMORY_ATTRIBUTE_PROTOCOL` was never actually invoked.** The GUID is corrected
+> in `build_efi.py` as of 2026-06-09; a proper retest (Attempt D8) remains to be done.
 
 UEFI 2.10 introduced `EFI_MEMORY_ATTRIBUTE_PROTOCOL`
-(GUID `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`), which exposes
-`ClearMemoryAttributes()` to remove `EFI_MEMORY_RO` from specific pages. 5l called
-`LocateProtocol` to obtain MAP, cleared the read-only attribute on the DSDT pages,
-then issued the same byte patch as 5k. The DSDT remained unchanged. Either MAP is
-absent on this Insyde H2O V1.09 firmware (`LocateProtocol` returned failure) or
-`ClearMemoryAttributes()` succeeded against an upper page-table layer but a lower
-firmware-managed layer continues to enforce write protection. Without a working
-diagnostic channel, the two cases cannot be distinguished from inside the UEFI
-application from 5l alone — this is what motivated Attempt 5m below.
+(correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`), which exposes
+`ClearMemoryAttributes()` to remove `EFI_MEMORY_RO` from specific pages. 5l attempted
+to call `LocateProtocol` to obtain MAP, clear the read-only attribute on the DSDT pages,
+then issue the same byte patch as 5k. The DSDT remained unchanged — but as noted above,
+this result is invalid because the wrong protocol was located.
 
-### 5m — MAP canary write to localise the block (Sessions 46–47)
+### 5m — MAP canary write to localise the block (Sessions 46–47) — **INVALID: wrong GUID (same as 5l)**
 
-Attempt 5l could not distinguish whether `EFI_MEMORY_ATTRIBUTE_PROTOCOL` was
-absent or present-but-ineffective. 5m added a canary to separate the two cases:
-after calling `ClearMemoryAttributes()` on the DSDT pages, the application wrote
-a known four-byte pattern to a benign DSDT field (`DSDT[0x20..0x23]`, the
-CreatorRevision) and added a visible multi-second stall so the run could be
-confirmed by eye. After reboot, the canary bytes read `00 00 00 05` —
-**unchanged** from the pre-boot baseline — and the `_DEP` patch target at
-`0x36C69` still read `SPSS`. The stall was observed, confirming the application
-ran to that point. Conclusion: writes to firmware-managed ACPI pages are silently
-dropped even after a MAP unprotect attempt. The direct DSDT-write path is
-**permanently closed**.
+> **Audit note (2026-06-09):** Same wrong-GUID bug as 5l applies here. The canary result
+> (bytes unchanged after stall) does **not** establish that MAP is absent or that
+> `ClearMemoryAttributes()` is non-functional — it only establishes that calling
+> `EFI_COMPONENT_NAME2_PROTOCOL`'s vtable at MAP's offsets did not unprotect the DSDT.
+> The conclusion "direct DSDT-write path is permanently closed" is **not supported**
+> by 5m's evidence and must be re-derived with the correct GUID (see Attempt D8 in
+> NEXT_STEPS_PostReview_2026-06-09.md).
+
+Attempt 5l could not distinguish whether MAP was absent or present-but-ineffective. 5m
+added a canary to separate the two cases: after the (invalid) MAP call, the application
+wrote a known four-byte pattern to `DSDT[0x20..0x23]` (CreatorRevision) and added a
+visible multi-second stall. The canary bytes read `00 00 00 05` — unchanged — and the
+stall was observed, confirming the application ran to that point. The original conclusion
+("writes silently dropped even after MAP unprotect") is not supported given the GUID bug;
+the direct DSDT-write path is **not yet proven permanently closed**.
 
 ### 5n — `BootServices->InstallConfigurationTable()` (Sessions 47–48)
 
@@ -943,10 +955,14 @@ characterise this protection model:
    but, as noted in §8, the wrong-GUID bug means absence-versus-rejection cannot
    be cleanly distinguished without a working UEFI-side diagnostic channel.
 
-3. **`EFI_MEMORY_ATTRIBUTE_PROTOCOL` (UEFI 2.10) is absent or non-functional for
-   ACPI memory.** This is the standard UEFI API for changing memory page
-   attributes. Without it, an EFI application cannot legitimately clear write
-   protection on ACPI pages. Confirmed by Attempt 5l.
+3. **`EFI_MEMORY_ATTRIBUTE_PROTOCOL` (UEFI 2.10) status is unknown — not yet tested.**
+   This is the standard UEFI API for changing memory page attributes. Attempts 5l and
+   5m were intended to test it but used the wrong GUID
+   (`{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` = `EFI_COMPONENT_NAME2_PROTOCOL`) and
+   never invoked MAP. The correct GUID is `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`
+   (EDK2 `MdePkg/Include/Protocol/MemoryAttribute.h`). The claim "MAP is absent or
+   non-functional" is **not supported by the evidence**; a proper retest (Attempt D8)
+   is required. The GUID has been corrected in `build_efi.py` as of 2026-06-09.
 
 4. **UEFI runtime variable services are fully blocked from Windows.**
    `GetFirmwareEnvironmentVariableW` returns error 1314 for every variable

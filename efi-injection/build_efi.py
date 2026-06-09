@@ -32,6 +32,10 @@ Session 40 (Attempt 5k): DSDT in-place _DEP patch.
 Session 40 (Attempt 5l): EFI_MEMORY_ATTRIBUTE_PROTOCOL unprotect before DSDT patch.
   Before writing to DSDT, call ClearMemoryAttributes() to lift the read-only attribute
   on the DSDT page(s). GUID: {6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14} (UEFI 2.10).
+  *** AUDIT NOTE (2026-06-09): that GUID is EFI_COMPONENT_NAME2_PROTOCOL, not MAP.
+  *** LocateProtocol most likely succeeded against the wrong protocol and called its
+  *** vtable at MAP offsets. 5l/5m results are INVALID — MAP was never tested.
+  *** Correct GUID is {F4560CF6-40EC-4B4A-A192-BF1D57D0B189}; fixed above at MAP_GUID.
   If protocol absent: fall through to DSDT write anyway, then chainload.
   Success check: HKLM\\HARDWARE\\ACPI\\DSDT\\...\\00000000 bytes at 0x36C69 == 47 4C 4E 4B (GLNK).
 
@@ -39,9 +43,9 @@ Session 46-47 (Attempt 5m): MAP canary write + 3-second stall for visual confirm
   Canary: write 0x41414141 to DSDT[0x20] (CreatorRevision, safe metadata, never read
     by ACPI interpreter; pre-write value 0x05000000).
   Stall placed at phase2 entry (was dead code in loop tail in 5l).
-  Result (Session 47): canary UNCHANGED (00 00 00 05). MAP protocol absent on Insyde
-  H2O V1.09 or ClearMemoryAttributes also silently fails on ACPI pages. DSDT write
-  path PERMANENTLY CLOSED. Even with MAP, writes are silently dropped.
+  Result (Session 47): canary UNCHANGED (00 00 00 05). INVALID — wrong GUID used (see
+  5l note above). This result does NOT establish MAP absent or ClearMemoryAttributes
+  non-functional; those conclusions must be re-derived with the correct GUID (D8).
 
 Session 47 (Attempt 5n): BootServices->InstallConfigurationTable() approach.
   All DSDT/RSDP direct-write paths exhausted (firmware-managed read-only pages).
@@ -103,9 +107,12 @@ DP_GUID   = pack_guid(0x09576E91, 0x6D3F, 0x11D2,
 # Vendor GUID for AcpiLog UEFI variable  {DEADBEEF-CAFE-1234-ABCD-000000000042}
 VAR_GUID  = pack_guid(0xDEADBEEF, 0xCAFE, 0x1234,
                       0xAB, 0xCD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x42)
-# EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID {6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14} (UEFI 2.10)
-MAP_GUID  = pack_guid(0x6A7A5CFF, 0xE8D9, 0x4F70,
-                      0xBA, 0xDA, 0x75, 0xAB, 0x30, 0x25, 0xCE, 0x14)
+# EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID {F4560CF6-40EC-4B4A-A192-BF1D57D0B189} (UEFI 2.10)
+# EDK2 MdePkg/Include/Protocol/MemoryAttribute.h — verified 2026-06-09.
+# Prior value {6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14} was EFI_COMPONENT_NAME2_PROTOCOL
+# (essentially always present) — 5l/5m never invoked MAP; see FINDINGS.md §8 audit note.
+MAP_GUID  = pack_guid(0xF4560CF6, 0x40EC, 0x4B4A,
+                      0xA1, 0x92, 0xBF, 0x1D, 0x57, 0xD0, 0xB1, 0x89)
 # EFI_LOADED_IMAGE_PROTOCOL_GUID - no longer used (log setup uses SFS scan instead)
 
 log_path_utf16     = "\\ai_debug.txt".encode("utf-16-le") + b"\x00\x00"   # 28 bytes
