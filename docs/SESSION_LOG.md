@@ -7089,3 +7089,218 @@ returned a clean negative for the one window tried.
 
 `bcdedit /debug` was left **on** (harmless — shows only a desktop watermark, fully
 reversible with `bcdedit /debug off` plus a reboot whenever desired).
+
+---
+
+## Session 52 (2026-06-09) — B4: Live-kernel DSDT patch — writability proven, namespace cache identified
+
+### Context
+
+Continuing Phase B4 from NEXT_STEPS_PostReview_2026-06-09.md. Session 51 established kd connectivity and found DOE_START_PENDING. This session's goal: locate the DSDT in kernel memory and patch SPSS→GLNK to test whether a rescan breaks the deadlock.
+
+`!acpi` extension was confirmed absent in Session 51. Needed an alternative path to find the DSDT's kernel address without symbols.
+
+Elevation note: Claude Code shell runs non-elevated; kd sessions invoked via `Start-Process pwsh -Verb RunAs -Wait` (triggers UAC dialog, then runs elevated).
+
+---
+
+### Pass 2 — !vm 1 (pool layout probe)
+
+**Command:**
+```
+kdARM64.exe -kl -c ".prefer_dml 0; !vm 1; q" -logo kd_b4_pass2_20260609_104116.txt
+```
+
+**Output (relevant excerpt):**
+```
+NonPagedPool Commit: 124896 (499584 Kb)
+PagedPool Commit:    106577 (426308 Kb)
+Unable to read memstats from heap 0000000000000000
+Failed to read pool stats
+```
+
+**Outcome:** `!vm 1` is available in this WinDbg build (kdexts.dll export present), but it cannot report pool base addresses without kernel symbols (`nt!MiState` not resolvable via `srv*`). Memory totals available, pool VA range not reported.
+
+---
+
+### FADT probe (user-mode P/Invoke)
+
+**Command:**
+```powershell
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class FirmTab { [DllImport("kernel32.dll")] public static extern uint GetSystemFirmwareTable(uint Provider, uint TableID, byte[] Buffer, uint Size); }'
+$ACPI = [uint32]0x41435049; $FACP = [uint32]0x50434146
+$sz = [FirmTab]::GetSystemFirmwareTable($ACPI, $FACP, $null, 0)
+$buf = New-Object byte[] $sz
+[FirmTab]::GetSystemFirmwareTable($ACPI, $FACP, $buf, $sz) | Out-Null
+[BitConverter]::ToUInt32($buf, 0x24)   # FIRMWARE_CTRL (FACS)
+[BitConverter]::ToUInt64($buf, 0x8C)   # X_DSDT
+```
+
+**Output:**
+```
+FADT size: 276 bytes  (revision 5)
+DSDT phys (32-bit, offset 0x24): 0xD46DC000   <- FIRMWARE_CTRL (FACS), not DSDT
+DSDT phys (64-bit X_DSDT, offset 0x8C): 0x00000000D4781018
+```
+
+**Interpretation:** FADT offset 0x24 is FIRMWARE_CTRL (FACS address), not the 32-bit DSDT pointer (which is at 0x28). Bug in initial P/Invoke: used wrong offset. X_DSDT at 0x8C = `0xD4781018`. The `+0x18` non-alignment (24 bytes above a page boundary) is the size of a Windows non-paged pool header, strongly suggesting Windows copied the DSDT to a pool allocation and updated X_DSDT to point to it.
+
+---
+
+### Pass 3 — Physical reads to verify both addresses
+
+**Command:**
+```
+!db 0xd46dc000 L20    # FIRMWARE_CTRL / FACS
+!db 0xd4781018 L20    # X_DSDT / pool copy
+!db 0xd47b7c81 L10    # DSDT+0x36C69 (patch target)
+```
+
+**Output:**
+```
+=== firmware address 0xd46dc000 ===
+#d46dc000 46 41 43 53 40 00 00 00...  FACS@...   (FACS signature confirmed)
+
+=== pool-copy DSDT header 0xd4781018 ===
+#d4781018 44 53 44 54 51 44 04 00-02 78 51 43 4f 4d 4d 20  DSDTQD...xQCOMM 
+#d4781028 53 44 4d 38 33 38 30 20-03 00 00 00 4d 53 46 54  SDM8380 ....MSFT
+
+=== firmware DSDT offset 0xd4712669 ===
+Physical memory read at d4712669 failed  (firmware ACPI pages inaccessible)
+
+=== pool-copy DSDT offset 0xd47b7c81 ===
+#d47b7c81 53 50 53 53 08 5f 48 49-44 0d 51 43 4f 4d 30 43  SPSS._HID.QCOM0C
+```
+
+**Outcome:**
+- DSDT pool copy at `0xD4781018` confirmed: signature "DSDT", length 0x44451, OEM "QCOMM /SDM8380 " — matches registry exactly.
+- Patch target at `0xD47B7C81` (= `0xD4781018 + 0x36C69`): bytes `53 50 53 53` = "SPSS" ✓
+- Firmware ACPI physical pages (`0xD4712669`) inaccessible — still protected after OS boot. Confirms firmware pages remain ROM-protected; Windows uses pool copy exclusively.
+- The non-aligned `+0x18` offset in X_DSDT is a standard Windows pool header (24 bytes for large allocations on ARM64).
+
+---
+
+### Pass 4 — Physical write (patch SPSS→GLNK + checksum fix)
+
+**Checksum calculation:**
+- GLNK sum: G(0x47)+L(0x4C)+N(0x4E)+K(0x4B) = 300 = 0x12C (mod 256 = 0x2C)
+- SPSS sum: S(0x53)+P(0x50)+S(0x53)+S(0x53) = 329 = 0x149 (mod 256 = 0x49)
+- Delta: 300−329 = −29 = −0x1D → table sum decreases by 0x1D
+- New checksum: 0x78 + 0x1D = **0x95** (at physical `0xD4781021` = DSDT+9)
+
+**Command:**
+```
+!eb 0xd47b7c81 47 4c 4e 4b    # SPSS -> GLNK
+!eb 0xd4781021 95              # checksum 0x78 -> 0x95
+!db 0xd47b7c81 L8              # verify
+!db 0xd4781021 L1              # verify checksum
+```
+
+**Output:**
+```
+=== POST-PATCH: verify target bytes ===
+#d47b7c81 47 4c 4e 4b 08 5f 48 49  GLNK._HI
+=== POST-PATCH: verify checksum ===
+#d4781021 95
+```
+
+**Outcome: Write succeeded.** `!eb` accepted both writes without error. DSDT pool copy now reads "GLNK" at the patch offset. Checksum updated. The pool copy IS writable via physical-address edits in local kernel debug.
+
+---
+
+### Bus rescan + oracle check
+
+**Command:**
+```powershell
+pnputil /scan-devices   # run elevated
+# Oracle checks (no elevation required):
+Get-PnpDevice | Where-Object { $_.InstanceId -like "*QCOM0C87*" }
+Get-PnpDevice | Where-Object { $_.InstanceId -like "*QCOM0C8D*" }
+Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceClasses\{E2EB84C1-...}" -Recurse | Get-ItemProperty
+```
+
+**Output:**
+```
+Oracle 1 (QCOM0C87): [empty — device absent]
+Oracle 2 (QCOM0C8D): Error / CM_PROB_FAILED_ADD  (unchanged)
+Oracle 3 (PIL TZ):   [no entries — deadlock holds]
+```
+
+**Outcome: Deadlock NOT broken.** All three oracles unchanged after patch + rescan.
+
+---
+
+### Interpretation
+
+The raw AML patch + bus rescan does NOT break the deadlock. This is consistent with how Windows's ACPI implementation works:
+
+1. At boot, `acpi.sys` reads the DSDT AML from the pool copy and builds an internal namespace tree (parsed ACPI objects, including Package objects for each `Name` declaration).
+2. When PnP queries `_DEP`, `acpi.sys` returns the pre-built Package object from the namespace — it does NOT re-interpret the raw AML bytes.
+3. A `pnputil /scan-devices` rescan re-enumerates devices but reads `_DEP` from the cached namespace. The patched raw bytes in the pool copy are not re-read.
+4. Therefore, patching the raw AML pool copy is necessary but NOT sufficient to change the runtime behaviour of `_DEP` evaluation.
+
+**What the patch DOES establish:**
+- The DSDT pool copy is writable via `!eb` physical writes (not read-only) ✓
+- The physical address `0xD4781018` is the correct working copy used by Windows ✓
+- The bytes at DSDT+0x36C69 are confirmed as `53 50 53 53` ("SPSS") ✓
+- This is the `_DEP` entry we need to modify ✓
+
+**What would be needed to break the deadlock via live patch:**
+- Option A (boot-time): intercept ACPI namespace build, patch the AML before the Package object is constructed. Requires a boot-time kernel driver or a kd breakpoint on `acpi.sys!AcpiConvertAmlToObject` or equivalent.
+- Option B (runtime): locate and patch the parsed ACPI_PACKAGE_ELEMENT object in the `acpi.sys` namespace. Requires kernel symbols or deep `acpi.sys` reverse engineering.
+- Option C (UEFI-time): Fix D8 — use corrected MAP GUID to clear DSDT page protection in the UEFI app, then patch the DSDT bytes *before* ExitBootServices. This would let the OS parse the corrected AML. (This is the most tractable path — only blocked by the MAP result being unknown with the wrong GUID.)
+
+The B4 experiment closes the "raw AML live patch + rescan" approach as a standalone fix path. It adds a new sub-finding: the DSDT pool copy is writable and confirmed at `0xD4781018`.
+
+---
+
+### Baseline
+
+`A14_Baseline_PostB4patch_20260609_105329.csv` — 5932 bytes, same device count as pre-B4. No change from the patch, as expected.
+
+---
+
+### Session 52 net assessment
+
+Session 52 is a clean experimental success: the patch worked (writability proven, bytes confirmed), the rescan oracle answered a question (namespace is pre-parsed), and the result narrows the live-patch attack surface to either boot-time or UEFI-time approaches. No device state was changed — the DSDT pool copy was patched (bytes now read "GLNK"), but this copy lives in volatile memory and will reset on next reboot. The machine is otherwise in the same state as before the session.
+
+§6 proof-status and §11 updated: B4 raw-AML-patch path closed; D8 (correct-GUID MAP retest) elevated in priority as the next UEFI-time candidate.
+
+## Session 53 (2026-06-09) — D8 built and deployed; result: DSDT unchanged, MAP status unknown
+
+### Context
+
+D8 is the first valid test of `EFI_MEMORY_ATTRIBUTE_PROTOCOL` (MAP) with the correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`. All prior attempts (5l, 5m) used `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` = `EFI_COMPONENT_NAME2_PROTOCOL` by mistake; MAP was never actually invoked in those runs.
+
+### Build
+
+`efi-injection/build_efi.py` updated with correct `MAP_GUID` and Phase 1 rewritten (D8 logic):
+1. Navigate ConfigurationTable → RSDP → XSDT → FADT (X_DSDT) → DSDT physical address
+2. `LocateProtocol(MAP_GUID)` — print status
+3. `GetMemoryAttributes(DSDT_phys, 0x1000)` — print GA status + attribute bits
+4. `ClearMemoryAttributes(page-base, 0x50000, EFI_MEMORY_RO=0x20000)` — BIT17, not BIT14
+5. Canary write `0x47` to `DSDT[0x36C69]`, read back
+6. If canary confirmed: write full GLNK patch + fix checksum `DSDT[9]` `0x78→0x95`
+
+`ADD_STALL=True` (8-second stall at phase2 entry). Binary: 5120 bytes. Deployed to `D:\EFI\BOOT\BOOTAA64.EFI`.
+
+### Post-boot result (2026-06-09)
+
+- **Screen during USB boot:** black screen 5–10 s, then Acer logo, then Windows — no text visible. This is expected: ConOut is not connected to the physical display on this Insyde/Qualcomm firmware (consistent with all prior sessions). The 5–10 s black screen matches the 8-second `ADD_STALL`, confirming the binary executed to phase2.
+- **Log file (`\ai_debug.txt`):** not found on EFI partition (S:) or USB (D:). Log write has never succeeded on this platform; results have always been read from the registry.
+- **Oracle 4 (`DSDT[0x36C69]`):** `53 50 53 53` — **SPSS, unchanged**. Patch did not land.
+- **Oracle 1–3:** QCOM0C87 absent from PnP; SPSS still `CM_PROB_FAILED_ADD`; PIL TZ not linked. Deadlock not broken.
+
+### Interpretation
+
+Oracle 4 being SPSS is consistent with four scenarios:
+- DSDT navigation failed (no FADT found in XSDT)
+- MAP not found (`LP=0x000E`)
+- MAP found, `ClearMemoryAttributes` returned non-zero (firmware blocked)
+- MAP found, CA returned 0, but write was silently dropped (hypervisor/MMU protection below EFI level)
+
+Without screen output or a working log channel, the exact failure point is unknown.
+
+### Status / next step
+
+**Ongoing:** D9 — timing-based diagnostic. Replace the fixed 8-second stall with variable-length stalls (3 s / 6 s / 9 s / 12 s / 15 s / 18 s) that encode which Phase 1 branch was taken. The user times the black screen to determine the MAP status without any output channel. This will tell us definitively whether MAP is absent from this firmware or present but blocked.

@@ -560,7 +560,7 @@ is established from what is inferred.
 | `ACPI\QCOM0C87` was never presented to the PnP manager as an ACPI device | **Established** | Kernel-PnP/Configuration log (732 events, all boots): zero events for `ACPI\QCOM0C87`; setupapi.dev.log: no entry for `ACPI\QCOM0C87` as a hardware-initiated device install; `HKLM\...\Enum\ACPI` has no QCOM0C87 subkey (Session 49, 2026-06-08) |
 | Windows holds `ACPI\QCOM0C87` back *because* `\_SB.SPSS` is unresolved | **Strongly indicated, with new live in-memory corroboration — acpi.sys decision itself still not directly captured** | SPSS failed; Windows' dependency database records QCSP as SPSS's dependent; QCSP never appeared in any PnP or event log; consistent with ACPI spec `_DEP` gating behavior. A full-boot WPR/ETW trace with `Kernel-Acpi`, `ACPI Driver Trace Provider`, `Kernel-PnP`, and `Kernel-Boot` enabled captured **zero events from any of the four** during the failure window (Session 50, 2026-06-08) — confirming the acpi.sys `_DEP`-gate decision is not observable via ETW on this system, not merely "not yet captured." Local kernel debugging (Session 51, 2026-06-08) then directly inspected the live SPSS device object in kernel memory and found `ExtensionFlags = DOE_START_PENDING` — a first-hand, in-memory observation that the device's start is being held pending right now, exactly as the model predicts (rather than an after-the-fact log record of a past decision). It does not, by itself, name *which* dependency is doing the gating — that would require locating the in-memory `_DEP`/QCSP-naming structure, which a small-window kernel-memory string search for `QCOM0C87`/`QCSP`/`\_SB.QCSP` did not find (see §11) |
 | `qcsubsys.sys` fails because it opens the (absent) PIL TZ interface during init | **Inferred** | NTSTATUS `STATUS_OBJECT_NAME_NOT_FOUND` + correlation; not from driver symbols or a trace |
-| Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred (untested end-to-end)** | Follows from the model; never executed, because no injection method on this firmware succeeded (§7–§8) |
+| Patching `_DEP[2]` SPSS→GLNK would break the deadlock | **Inferred — raw-AML live patch tested and insufficient; UEFI-time fix untested with correct MAP GUID** | Session 52 (2026-06-09): DSDT pool copy at physical `0xD4781018` located, `53 50 53 53` ("SPSS") confirmed at offset `0x36C69`, physical write succeeded (bytes changed to "GLNK"), checksum fixed. `pnputil /scan-devices` rescan: all three oracles unchanged. Result: `acpi.sys` uses a pre-parsed namespace cache for `_DEP` — raw AML bytes are read once at boot and not re-interpreted on rescan. The UEFI-time fix (D8: MAP unprotect + DSDT patch before `ExitBootServices`) and a boot-time kernel-driver interception remain untested. |
 
 **What would turn "Windows holds QCSP because SPSS is unresolved" from strongly
 indicated into proven** — still not done, still recorded as open paths in
@@ -592,8 +592,12 @@ indicated into proven** — still not done, still recorded as open paths in
   around `qcsubsys8380.sys` pool allocations or PnP-manager structures) if their
   addresses can be obtained without triggering the `lm`/symbol-resolution hang. See
   SESSION_LOG Session 51 for the full analysis.
-- A **live-kernel DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a forced bus
-  rescan: if the deadlock breaks, the DSDT fix is proven sufficient.
+- ~~A **live-kernel raw-AML DSDT patch** (SPSS→GLNK at `0x36C69`) followed by a
+  forced bus rescan~~ — **attempted, insufficient (Session 52, 2026-06-09).** The DSDT
+  pool copy at physical `0xD4781018` was located, bytes confirmed, write succeeded.
+  Rescan oracle: unchanged. `acpi.sys` uses a pre-parsed namespace cache — raw AML
+  patches after boot have no effect on `_DEP` evaluation. Boot-time interception or
+  UEFI-time fix (D8, correct MAP GUID) remain open. See SESSION_LOG Session 52.
 - A **factory-image comparison** establishing whether a working A14-11M uses the same
   DSDT (firmware bug confirmed) or a different provisioning/order (software-side cause).
 
@@ -848,32 +852,44 @@ checksum. After reboot, the live DSDT at
 `53 50 53 53` at offset `0x36C69`. DSDT pages are write-protected on the same
 basis as RSDP.
 
-### 5l — `EFI_MEMORY_ATTRIBUTE_PROTOCOL` unprotect then patch (Sessions 40–41)
+### 5l — `EFI_MEMORY_ATTRIBUTE_PROTOCOL` unprotect then patch (Sessions 40–41) — **INVALID: wrong GUID**
+
+> **Audit note (2026-06-09):** The GUID used in this attempt was
+> `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`, which is **`EFI_COMPONENT_NAME2_PROTOCOL`**
+> — not `EFI_MEMORY_ATTRIBUTE_PROTOCOL`. The correct MAP GUID is
+> `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}` (verified against EDK2 master
+> `MdePkg/Include/Protocol/MemoryAttribute.h`). Because `EFI_COMPONENT_NAME2_PROTOCOL`
+> is essentially always registered, `LocateProtocol` most likely succeeded and the code
+> called that protocol's vtable at MAP's function offsets — invoking an unrelated
+> function, not `ClearMemoryAttributes()`. This is the same class of error as the
+> already-documented 5a–5g wrong-GUID bug. **The results of 5l and 5m are invalid;
+> `EFI_MEMORY_ATTRIBUTE_PROTOCOL` was never actually invoked.** The GUID is corrected
+> in `build_efi.py` as of 2026-06-09; a proper retest (Attempt D8) remains to be done.
 
 UEFI 2.10 introduced `EFI_MEMORY_ATTRIBUTE_PROTOCOL`
-(GUID `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`), which exposes
-`ClearMemoryAttributes()` to remove `EFI_MEMORY_RO` from specific pages. 5l called
-`LocateProtocol` to obtain MAP, cleared the read-only attribute on the DSDT pages,
-then issued the same byte patch as 5k. The DSDT remained unchanged. Either MAP is
-absent on this Insyde H2O V1.09 firmware (`LocateProtocol` returned failure) or
-`ClearMemoryAttributes()` succeeded against an upper page-table layer but a lower
-firmware-managed layer continues to enforce write protection. Without a working
-diagnostic channel, the two cases cannot be distinguished from inside the UEFI
-application from 5l alone — this is what motivated Attempt 5m below.
+(correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`), which exposes
+`ClearMemoryAttributes()` to remove `EFI_MEMORY_RO` from specific pages. 5l attempted
+to call `LocateProtocol` to obtain MAP, clear the read-only attribute on the DSDT pages,
+then issue the same byte patch as 5k. The DSDT remained unchanged — but as noted above,
+this result is invalid because the wrong protocol was located.
 
-### 5m — MAP canary write to localise the block (Sessions 46–47)
+### 5m — MAP canary write to localise the block (Sessions 46–47) — **INVALID: wrong GUID (same as 5l)**
 
-Attempt 5l could not distinguish whether `EFI_MEMORY_ATTRIBUTE_PROTOCOL` was
-absent or present-but-ineffective. 5m added a canary to separate the two cases:
-after calling `ClearMemoryAttributes()` on the DSDT pages, the application wrote
-a known four-byte pattern to a benign DSDT field (`DSDT[0x20..0x23]`, the
-CreatorRevision) and added a visible multi-second stall so the run could be
-confirmed by eye. After reboot, the canary bytes read `00 00 00 05` —
-**unchanged** from the pre-boot baseline — and the `_DEP` patch target at
-`0x36C69` still read `SPSS`. The stall was observed, confirming the application
-ran to that point. Conclusion: writes to firmware-managed ACPI pages are silently
-dropped even after a MAP unprotect attempt. The direct DSDT-write path is
-**permanently closed**.
+> **Audit note (2026-06-09):** Same wrong-GUID bug as 5l applies here. The canary result
+> (bytes unchanged after stall) does **not** establish that MAP is absent or that
+> `ClearMemoryAttributes()` is non-functional — it only establishes that calling
+> `EFI_COMPONENT_NAME2_PROTOCOL`'s vtable at MAP's offsets did not unprotect the DSDT.
+> The conclusion "direct DSDT-write path is permanently closed" is **not supported**
+> by 5m's evidence and must be re-derived with the correct GUID (see Attempt D8 in
+> NEXT_STEPS_PostReview_2026-06-09.md).
+
+Attempt 5l could not distinguish whether MAP was absent or present-but-ineffective. 5m
+added a canary to separate the two cases: after the (invalid) MAP call, the application
+wrote a known four-byte pattern to `DSDT[0x20..0x23]` (CreatorRevision) and added a
+visible multi-second stall. The canary bytes read `00 00 00 05` — unchanged — and the
+stall was observed, confirming the application ran to that point. The original conclusion
+("writes silently dropped even after MAP unprotect") is not supported given the GUID bug;
+the direct DSDT-write path is **not yet proven permanently closed**.
 
 ### 5n — `BootServices->InstallConfigurationTable()` (Sessions 47–48)
 
@@ -943,10 +959,14 @@ characterise this protection model:
    but, as noted in §8, the wrong-GUID bug means absence-versus-rejection cannot
    be cleanly distinguished without a working UEFI-side diagnostic channel.
 
-3. **`EFI_MEMORY_ATTRIBUTE_PROTOCOL` (UEFI 2.10) is absent or non-functional for
-   ACPI memory.** This is the standard UEFI API for changing memory page
-   attributes. Without it, an EFI application cannot legitimately clear write
-   protection on ACPI pages. Confirmed by Attempt 5l.
+3. **`EFI_MEMORY_ATTRIBUTE_PROTOCOL` (UEFI 2.10) status is unknown — not yet tested.**
+   This is the standard UEFI API for changing memory page attributes. Attempts 5l and
+   5m were intended to test it but used the wrong GUID
+   (`{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` = `EFI_COMPONENT_NAME2_PROTOCOL`) and
+   never invoked MAP. The correct GUID is `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`
+   (EDK2 `MdePkg/Include/Protocol/MemoryAttribute.h`). The claim "MAP is absent or
+   non-functional" is **not supported by the evidence**; a proper retest (Attempt D8)
+   is required. The GUID has been corrected in `build_efi.py` as of 2026-06-09.
 
 4. **UEFI runtime variable services are fully blocked from Windows.**
    `GetFirmwareEnvironmentVariableW` returns error 1314 for every variable
@@ -1132,16 +1152,23 @@ work could not verify, that is stated.
   summary in `diagnostic-captures/` (gitignored); full analysis in SESSION_LOG Session
   50. *Status: Kernel-PnP static capture done; WPR boot trace attempted and closed —
   this avenue cannot promote the root-cause model to "proven."*
-- **Live-kernel DSDT patch (also a fix-validation).** With a kernel debugger attached,
-  patch `_DEP[2]` SPSS→GLNK at `0x36C69` in the in-memory DSDT after `acpi.sys` maps
-  it but before PnP evaluates `_DEP`, then force a bus rescan. If the deadlock breaks,
-  the DSDT patch is *proven sufficient* without any persistent firmware change.
-  *Status: KD setup feasibility is now resolved — Session 51 (2026-06-08) successfully
-  enabled and used local kernel debugging (`bcdedit /debug on` + `kdARM64.exe -kl`) on
-  this exact locked-down platform (HVCI/Secure Boot ON) without issue. The patch
-  itself remains not attempted — it requires locating the in-memory DSDT mapping and
-  intercepting at the right point in the boot sequence, a materially harder task than
-  the read-only inspection done so far.*
+- ~~**Live-kernel raw-AML DSDT patch (fix-validation)**~~ — **attempted; raw-AML patch
+  is insufficient (Session 52, 2026-06-09).** DSDT pool copy located at physical
+  `0xD4781018` (Windows updates X_DSDT in FADT to point to a non-paged pool copy;
+  the `+0x18` byte offset = standard pool header). `!db` confirmed `53 50 53 53`
+  ("SPSS") at physical `0xD47B7C81` (= `0xD4781018 + 0x36C69`). `!eb` physical-memory
+  writes succeeded — pool copy is writable. Bytes changed to "GLNK", checksum fixed.
+  `pnputil /scan-devices` rescan: all three oracles unchanged (QCOM0C87 absent, QCOM0C8D
+  failing, PIL TZ not linked). Conclusion: `acpi.sys` builds the ACPI namespace from
+  raw AML **once at boot** and evaluates `_DEP` from the cached parsed Package object
+  thereafter — not by re-reading AML bytes. A rescan does not re-parse the AML; patching
+  the raw bytes after boot has no effect on device enumeration.
+  The DSDT pool copy resets on reboot (volatile allocation). **What remains:**
+  (a) UEFI-time fix: D8 with corrected MAP GUID — clear DSDT page protection and patch
+  *before* `ExitBootServices`, so Windows parses the corrected AML at boot; (b)
+  boot-time kernel interception: a signed driver that hooks `acpi.sys` before namespace
+  build (HVCI/Secure Boot ON — requires WHQL or a co-signed driver). Both remain
+  untested. Full analysis in SESSION_LOG Session 52.
 - **Live local-kernel-memory inspection — attempted, partially successful (Session 51,
   2026-06-08).** With local kernel debugging enabled and `kdARM64.exe -kl` attached,
   the live SPSS device object (`PDO 0xffffbd0ebd52cd50`, owned solely by `\Driver\ACPI`

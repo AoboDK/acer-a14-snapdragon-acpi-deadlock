@@ -122,9 +122,9 @@ dependency-free version of the QCSP device (HID `QCOM0C87`, no `_DEP`) so that
 | `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | Not usable from the tested boot app; absent-vs-rejected unresolved (builds 5a–5g used the wrong protocol GUID — see §8) |
 | Direct XSDT modification (write `RSDP->XsdtAddress`) | RSDP is in firmware read-only memory; write silently dropped |
 | DSDT in-place byte patch | DSDT pages also read-only; write silently dropped |
-| `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` + patch | MAP protocol absent or blocked; DSDT unchanged |
+| `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` + patch | **5l/5m INVALID — wrong GUID** (`{6A7A5CFF...}` = `EFI_COMPONENT_NAME2_PROTOCOL`). MAP never actually invoked. Retest pending (D8 with correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`). |
 
-All software-only paths on Windows ARM64 / Insyde UEFI V1.09 have been exhausted.
+Not all software-only paths have been cleanly tested — see the 5l/5m audit note.
 See [`docs/ATTEMPTS.md`](docs/ATTEMPTS.md) for the full table and remaining options.
 
 ---
@@ -145,8 +145,8 @@ full attempt log (5a through 5o).
 | 5h | `EFI_ACPI_TABLE_PROTOCOL->InstallAcpiTable()` | SSDT never in `HKLM\HARDWARE\ACPI\SSDT`; absent-vs-rejected not cleanly distinguishable (5a–5g used the wrong GUID) |
 | 5i–5j | Direct XSDT append in EfiACPIMemoryNVS | RSDP->XsdtAddress write silently dropped (RSDP is read-only firmware memory) |
 | 5k | DSDT in-place byte patch | DSDT pages also write-protected; write silently dropped |
-| 5l | `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` before DSDT patch | MAP protocol absent or also blocked; DSDT unchanged |
-| 5m | MAP unprotect + canary write to `DSDT[0x20]` | Canary unchanged after boot — DSDT write path confirmed permanently closed |
+| 5l | `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` before DSDT patch | **INVALID — wrong GUID** (`{6A7A5CFF...}` = Component Name 2, not MAP). MAP never invoked; result does not establish MAP absent. Correct GUID `{F4560CF6...}`; retest pending (D8). |
+| 5m | MAP unprotect + canary write to `DSDT[0x20]` | **INVALID — same wrong GUID as 5l.** "Permanently closed" conclusion withdrawn; retest required. |
 | 5n | `BootServices->InstallConfigurationTable()` with new RSDP/XSDT/SSDT chain in NVS | Only "Compal" SSDT key after boot — replacement chain not parsed by Windows |
 | 5o | 5n + on-screen `ICT=`/`CT=` diagnostics | Tested; failed — SSDT not injected, deadlock not broken. `InstallConfigurationTable()` path closed |
 

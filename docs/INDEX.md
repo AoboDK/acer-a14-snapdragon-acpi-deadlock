@@ -187,11 +187,13 @@ canonical write-up.
 - **5k** — DSDT in-place byte patch at offset `0x36C69`. Session 40.
   **Failed** — DSDT pages also read-only; write silently dropped.
 - **5l** — `EFI_MEMORY_ATTRIBUTE_PROTOCOL->ClearMemoryAttributes()` then DSDT
-  patch. Sessions 40–41. **Failed** — DSDT unchanged; MAP absent or also
-  blocked for ACPI memory.
+  patch. Sessions 40–41. **INVALID — wrong GUID** (`{6A7A5CFF...}` =
+  `EFI_COMPONENT_NAME2_PROTOCOL`, not MAP). MAP never invoked; result does not
+  establish MAP absent. Correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`;
+  retest pending (D8).
 - **5m** — MAP unprotect + canary write to `DSDT[0x20]` (CreatorRevision).
-  Sessions 46–47. **Failed** — canary unchanged after boot; DSDT write path
-  confirmed permanently closed.
+  Sessions 46–47. **INVALID — same wrong GUID as 5l.** "Permanently closed"
+  conclusion withdrawn; retest required (D8).
 - **5n** — `BootServices->InstallConfigurationTable()` with a new RSDP/XSDT/SSDT
   chain in `EfiACPIMemoryNVS`. Sessions 47–48. **Failed** — only the "Compal"
   SSDT key after boot; replacement chain not parsed by Windows.
@@ -296,10 +298,12 @@ their state on this platform.
   conclusively distinguish "protocol absent" from "InstallAcpiTable rejected"
   because the wrong GUID was used in earlier builds and no diagnostic channel
   was available by 5h.
-- **`EFI_MEMORY_ATTRIBUTE_PROTOCOL`** — UEFI 2.10, GUID
-  `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`. Attempted in 5l for unprotecting
-  ACPI pages. Absent or non-functional on Insyde H2O V1.09.
-  See [`FINDINGS.md §9`](FINDINGS.md).
+- **`EFI_MEMORY_ATTRIBUTE_PROTOCOL`** — UEFI 2.10, correct GUID
+  `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}` (EDK2-verified 2026-06-09).
+  Attempts 5l/5m used the **wrong GUID** `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}`
+  (= `EFI_COMPONENT_NAME2_PROTOCOL`) — MAP was never actually invoked; the "absent
+  or non-functional" conclusion is **not supported**. Retest pending (D8).
+  See [`FINDINGS.md §8`](FINDINGS.md) audit note and [`FINDINGS.md §9`](FINDINGS.md).
 - **`EFI_SECURITY_ARCH_PROTOCOL`** — used by Shim to gate `LoadImage`. Blocked
   the unsigned `AcpiInject.efi` in Attempt 5a.
   See [`FINDINGS.md §8`](FINDINGS.md).

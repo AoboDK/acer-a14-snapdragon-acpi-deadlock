@@ -32,6 +32,10 @@ Session 40 (Attempt 5k): DSDT in-place _DEP patch.
 Session 40 (Attempt 5l): EFI_MEMORY_ATTRIBUTE_PROTOCOL unprotect before DSDT patch.
   Before writing to DSDT, call ClearMemoryAttributes() to lift the read-only attribute
   on the DSDT page(s). GUID: {6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14} (UEFI 2.10).
+  *** AUDIT NOTE (2026-06-09): that GUID is EFI_COMPONENT_NAME2_PROTOCOL, not MAP.
+  *** LocateProtocol most likely succeeded against the wrong protocol and called its
+  *** vtable at MAP offsets. 5l/5m results are INVALID -- MAP was never tested.
+  *** Correct GUID is {F4560CF6-40EC-4B4A-A192-BF1D57D0B189}; fixed above at MAP_GUID.
   If protocol absent: fall through to DSDT write anyway, then chainload.
   Success check: HKLM\\HARDWARE\\ACPI\\DSDT\\...\\00000000 bytes at 0x36C69 == 47 4C 4E 4B (GLNK).
 
@@ -39,15 +43,28 @@ Session 46-47 (Attempt 5m): MAP canary write + 3-second stall for visual confirm
   Canary: write 0x41414141 to DSDT[0x20] (CreatorRevision, safe metadata, never read
     by ACPI interpreter; pre-write value 0x05000000).
   Stall placed at phase2 entry (was dead code in loop tail in 5l).
-  Result (Session 47): canary UNCHANGED (00 00 00 05). MAP protocol absent on Insyde
-  H2O V1.09 or ClearMemoryAttributes also silently fails on ACPI pages. DSDT write
-  path PERMANENTLY CLOSED. Even with MAP, writes are silently dropped.
+  Result (Session 47): canary UNCHANGED (00 00 00 05). INVALID -- wrong GUID used (see
+  5l note above). This result does NOT establish MAP absent or ClearMemoryAttributes
+  non-functional; those conclusions must be re-derived with the correct GUID (D8).
+
+Session 53 (Attempt D8): EFI_MEMORY_ATTRIBUTE_PROTOCOL retest with correct GUID.
+  Replaces Phase 1 entirely with D8 logic:
+    1. Navigate ConfigurationTable -> RSDP -> XSDT -> FADT -> DSDT physical address.
+    2. LocateProtocol(MAP_GUID) -- print 16-hex status; if EFI_NOT_FOUND, skip to chainload.
+    3. GetMemoryAttributes(DSDT_phys, 0x1000) -- print GA status + attrs bits.
+    4. ClearMemoryAttributes(page-aligned DSDT base, 0x50000, EFI_MEMORY_RO=0x20000).
+       EFI_MEMORY_RO = BIT17 = 0x20000 (UEFI 2.10 Table 2-4). Prior handoff doc had 0x4000
+       which is EFI_MEMORY_XP (execute-protect), not read-only. Corrected here.
+    5. Canary write 0x47 to DSDT[0x36C69], read back -- print CW=<byte>.
+    6. If canary byte == 0x47: write full GLNK patch (4C 4E 4B) + fix checksum 0x78->0x95.
+  All EFI_STATUS values printed as 16 hex digits on ConOut via d8_print_hex64 subroutine.
+  d8_print_hex64: saves/restores lr; uses static d8_hex_buf (40 bytes); UTF-16 output.
 
 Session 47 (Attempt 5n): BootServices->InstallConfigurationTable() approach.
   All DSDT/RSDP direct-write paths exhausted (firmware-managed read-only pages).
   New approach: call firmware's own InstallConfigurationTable() to replace the ACPI
   2.0 GUID entry in SystemTable->ConfigurationTable[] with a pointer to a new NVS
-  RSDP+XSDT+SSDT chain — never writes to firmware-owned memory directly.
+  RSDP+XSDT+SSDT chain -- never writes to firmware-owned memory directly.
   Algorithm:
     1. Walk ConfigurationTable -> find ACPI 2.0 GUID entry -> read old RSDP (read-only)
     2. AllocatePages(EfiACPIMemoryNVS, 4 pages): new_rsdp (+0x0000), new_xsdt (+0x1000),
@@ -103,9 +120,12 @@ DP_GUID   = pack_guid(0x09576E91, 0x6D3F, 0x11D2,
 # Vendor GUID for AcpiLog UEFI variable  {DEADBEEF-CAFE-1234-ABCD-000000000042}
 VAR_GUID  = pack_guid(0xDEADBEEF, 0xCAFE, 0x1234,
                       0xAB, 0xCD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x42)
-# EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID {6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14} (UEFI 2.10)
-MAP_GUID  = pack_guid(0x6A7A5CFF, 0xE8D9, 0x4F70,
-                      0xBA, 0xDA, 0x75, 0xAB, 0x30, 0x25, 0xCE, 0x14)
+# EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID {F4560CF6-40EC-4B4A-A192-BF1D57D0B189} (UEFI 2.10)
+# EDK2 MdePkg/Include/Protocol/MemoryAttribute.h -- verified 2026-06-09.
+# Prior value {6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14} was EFI_COMPONENT_NAME2_PROTOCOL
+# (essentially always present) -- 5l/5m never invoked MAP; see FINDINGS.md §8 audit note.
+MAP_GUID  = pack_guid(0xF4560CF6, 0x40EC, 0x4B4A,
+                      0xA1, 0x92, 0xBF, 0x1D, 0x57, 0xD0, 0xB1, 0x89)
 # EFI_LOADED_IMAGE_PROTOCOL_GUID - no longer used (log setup uses SFS scan instead)
 
 log_path_utf16     = "\\ai_debug.txt".encode("utf-16-le") + b"\x00\x00"   # 28 bytes
@@ -144,6 +164,18 @@ cstr_ict_err    = u16("[AI] ICT=ERR\r\n")
 cstr_ct_ours    = u16("[AI] CT=OURS\r\n")
 cstr_ct_old     = u16("[AI] CT=OLD\r\n")
 cstr_ct_gone    = u16("[AI] CT=NONE\r\n")
+
+# D8 ConOut strings
+cstr_d8_start    = u16("[D8] START\r\n")
+cstr_d8_dsdt     = u16("[D8] DSDT=\r\n")
+cstr_d8_map_lp   = u16("[D8] MAP LP=\r\n")
+cstr_d8_map_nf   = u16("[D8] MAP NF\r\n")
+cstr_d8_ga       = u16("[D8] GA=\r\n")
+cstr_d8_a        = u16("[D8] A=\r\n")
+cstr_d8_ca       = u16("[D8] CA=\r\n")
+cstr_d8_cw       = u16("[D8] CW=\r\n")
+cstr_d8_patch_ok = u16("[D8] PATCH=OK\r\n")
+cstr_d8_no_dsdt  = u16("[D8] NO DSDT\r\n")
 
 # Log file ASCII strings
 LOG_STRS = {
@@ -295,203 +327,193 @@ if SKIP_ACPI:
     phase1_asm = "    b    phase2    // SKIP_ACPI=True\n"
 else:
     phase1_asm = f"""
-    // Phase 1: InstallConfigurationTable() approach (Attempt 5n)
-    // Walk ConfigurationTable -> find ACPI 2.0 GUID -> read old RSDP (no writes to firmware memory)
-    // Allocate 4 EfiACPIMemoryNVS pages: [0x0000]=new_rsdp, [0x1000]=new_xsdt, [0x3000]=new_ssdt
-    // Build RSDP+XSDT+SSDT chain in NVS, call InstallConfigurationTable() to replace ACPI 2.0 entry.
-    // BootServices->AllocatePages = +0x028 (40)
-    // BootServices->InstallConfigurationTable = +0x0C0 (192)
-    // x21-x25 (callee-saved) used to hold values across blr calls
+    // Phase 1: D8 -- EFI_MEMORY_ATTRIBUTE_PROTOCOL DSDT unprotect + in-place patch
+    // First valid MAP test: correct GUID {{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}}.
+    // Prior 5l/5m used EFI_COMPONENT_NAME2_PROTOCOL GUID -- MAP was never invoked.
+    //
+    // Steps:
+    //   1. Navigate ConfigurationTable -> RSDP -> XSDT -> FADT (X_DSDT) -> DSDT phys addr
+    //   2. LocateProtocol(MAP_GUID) -- EFI_NOT_FOUND -> skip to phase2
+    //   3. GetMemoryAttributes(DSDT_phys, 1 page) -- print GA status + attrs bits
+    //   4. ClearMemoryAttributes(page-base, 0x50000, EFI_MEMORY_RO=0x20000) -- BIT17
+    //   5. Canary: write 0x47 at DSDT[0x36C69], read back
+    //   6. If canary == 0x47: write GLNK patch + fix checksum DSDT[9]=0x95
+{print_asm("cstr_d8_start")}
 
-    ldr  x22, [x27, #104]       // x22 = NumberOfTableEntries (callee-saved)
-    ldr  x23, [x27, #112]       // x23 = ConfigurationTable array ptr (callee-saved)
-    mov  x21, xzr               // x21 = loop index i (callee-saved)
+    // Step 1: walk ConfigurationTable for ACPI 2.0 GUID
+    ldr  x22, [x27, #104]       // NumberOfTableEntries (callee-saved)
+    ldr  x23, [x27, #112]       // ConfigurationTable ptr (callee-saved)
+    mov  x21, xzr               // loop index (callee-saved)
 
-cfg_loop:
+d8_cfg_loop:
     cmp  x21, x22
-    bge  phase2                  // ACPI 2.0 GUID not found
+    bge  d8_no_dsdt
 
     mov  x8,  #24
     mul  x8,  x21, x8
-    add  x8,  x23, x8            // &ConfigurationTable[i]
+    add  x8,  x23, x8           // &ConfigurationTable[i]
 
-    ldr  x0,  [x8]               // GUID bytes 0-7
+    ldr  x0,  [x8]
     ldr  x1,  acpi20_guid_lo
     cmp  x0,  x1
-    bne  cfg_next
+    bne  d8_cfg_next
 
-    ldr  x0,  [x8, #8]           // GUID bytes 8-15
+    ldr  x0,  [x8, #8]
     ldr  x1,  acpi20_guid_hi
     cmp  x0,  x1
-    bne  cfg_next
+    bne  d8_cfg_next
 
-    ldr  x24, [x8, #16]          // x24 = old RSDP address (callee-saved, read-only)
-    b    found_acpi
+    ldr  x24, [x8, #16]         // x24 = RSDP address (callee-saved)
+    b    d8_found_rsdp
 
-cfg_next:
+d8_cfg_next:
     add  x21, x21, #1
-    b    cfg_loop
+    b    d8_cfg_loop
 
-found_acpi:
-    // x24 = old RSDP (firmware read-only - never written)
-    // Allocate 4 contiguous NVS pages
-    ldr  x8,  [x20, #40]         // AllocatePages (+0x028)
-    mov  x0,  xzr                // AllocateAnyPages = 0
-    mov  x1,  #9                 // EfiACPIMemoryNVS = 9
-    mov  x2,  #4                 // 4 pages = 16KB
-    adr  x3,  nvs_base_addr
-    blr  x8
-    cbnz x0,  phase2             // AllocatePages failed
+d8_found_rsdp:
+    ldr  x21, [x24, #24]        // x21 = XSDT address (callee-saved)
+    ldr  w22, [x21, #4]         // XSDT Length (UINT32)
+    uxtw x22, w22               // x22 = XSDT Length zero-extended (callee-saved)
+    mov  x23, #36               // x23 = entry byte offset; entries start at +36 (callee-saved)
 
-    ldr  x25, nvs_base_addr      // x25 = NVS base (callee-saved, survives blr)
-    // new_rsdp = x25+0x0000  new_xsdt = x25+0x1000  new_ssdt = x25+0x3000
+d8_xsdt_loop:
+    cmp  x23, x22
+    bge  d8_no_dsdt
 
-    // Copy old RSDP (36 bytes) to new_rsdp
-    ldr  x8,  [x20, #352]        // CopyMem (+0x160)
-    mov  x0,  x25                // dst = new_rsdp
-    mov  x1,  x24                // src = old RSDP
-    mov  x2,  #36
-    blr  x8
-
-    // Compute new_xsdt address and store in new_rsdp->XsdtAddress (+24)
-    mov  x21, #0x1000
-    add  x21, x25, x21           // x21 = new_xsdt (callee-saved)
-    str  x21, [x25, #24]         // new_rsdp->XsdtAddress = new_xsdt
-
-    // Read old XSDT address from original RSDP (x24 still valid - callee-saved)
-    ldr  x22, [x24, #24]         // x22 = old_xsdt address (callee-saved)
-    ldr  w0,  [x22, #4]          // old XSDT Length
-    movz w9,  #0x2000
+    ldr  x8,  [x21, x23]        // table entry physical address
+    ldr  w0,  [x8]              // 4-byte signature
+    movz w9,  #0x4146
+    movk w9,  #0x5043, lsl #16  // 0x50434146 = "FACP" little-endian
     cmp  w0,  w9
-    bgt  phase2                  // XSDT > 8KB - unexpected, skip
+    beq  d8_found_fadt
+    add  x23, x23, #8
+    b    d8_xsdt_loop
 
-    // Copy old XSDT to new_xsdt
-    ldr  x8,  [x20, #352]        // CopyMem
-    mov  x0,  x21                // dst = new_xsdt
-    mov  x1,  x22                // src = old_xsdt
-    ldr  w2,  [x22, #4]          // length = old XSDT Length (zero-extends to x2)
+d8_found_fadt:
+    // x8 = FADT physical address; X_DSDT (UINT64) at FADT+0x8C (ACPI spec)
+    ldr  x25, [x8, #0x8C]       // x25 = DSDT physical address (callee-saved)
+{print_asm("cstr_d8_dsdt")}
+    mov  x0,  x25
+    bl   d8_print_hex64
+
+    // Step 2: LocateProtocol(MAP_GUID)
+    ldr  x8,  [x20, #320]       // BootServices->LocateProtocol (+0x140)
+    adr  x0,  map_proto_guid
+    mov  x1,  xzr
+    adr  x2,  map_proto_ptr
     blr  x8
+    mov  x24, x0                // x24 = LocateProtocol status (callee-saved)
+{print_asm("cstr_d8_map_lp")}
+    mov  x0,  x24
+    bl   d8_print_hex64
+    cbnz x24, d8_map_not_found  // non-zero = not found / error
 
-    // Compute new_ssdt address = NVS base + 0x3000
-    movz x23, #0x3000
-    add  x23, x25, x23           // x23 = new_ssdt (callee-saved)
+    ldr  x24, map_proto_ptr     // x24 = MAP interface pointer (callee-saved)
 
-    // Copy SSDT (80 bytes) to new_ssdt
-    ldr  x8,  [x20, #352]        // CopyMem
-    mov  x0,  x23                // dst = new_ssdt
-    adr  x1,  ssdt_data
-    mov  x2,  #80
+    // Step 3: GetMemoryAttributes(MAP, DSDT_phys, 0x1000, &d8_attrs)
+    // MAP vtable: [+0]=GetMemoryAttributes [+8]=SetMemoryAttributes [+16]=ClearMemoryAttributes
+    mov  x0,  x24               // This
+    mov  x1,  x25               // BaseAddress = DSDT physical
+    mov  x2,  #0x1000           // Length = 1 page (diagnostic probe)
+    adr  x3,  d8_attrs          // Attributes out-param
+    ldr  x8,  [x24, #0]         // MAP->GetMemoryAttributes
     blr  x8
+    mov  x22, x0                // x22 = GA status (callee-saved)
+{print_asm("cstr_d8_ga")}
+    mov  x0,  x22
+    bl   d8_print_hex64
+{print_asm("cstr_d8_a")}
+    ldr  x0,  d8_attrs
+    bl   d8_print_hex64
 
-    // Append new_ssdt pointer at end of new_xsdt (at offset = current Length)
-    ldr  w0,  [x21, #4]          // new_xsdt->Length (UINT32)
-    uxtw x9,  w0                 // x9 = Length (zero-extended)
-    add  x9,  x21, x9            // x9 = append position
-    str  x23, [x9]               // store new_ssdt address (8 bytes)
-    add  w0,  w0,  #8
-    str  w0,  [x21, #4]          // new_xsdt->Length += 8
-
-    // Recalculate new_xsdt checksum (UINT8 at +9, covers all bytes)
-    strb wzr, [x21, #9]
-    ldr  w9,  [x21, #4]          // new Length (w9 zero-extends to x9)
-    mov  x3,  xzr
-    mov  x4,  xzr
-
-xsdt_cksum:
-    cmp  x3,  x9
-    bge  xsdt_cksum_done
-    ldrb w0,  [x21, x3]
-    add  x4,  x4,  x0
-    add  x3,  x3,  #1
-    b    xsdt_cksum
-
-xsdt_cksum_done:
-    neg  w4,  w4
-    and  w4,  w4,  #0xFF
-    strb w4,  [x21, #9]
-
-    // Recalculate new_rsdp extended checksum (UINT8 at +32, covers bytes 0-35)
-    strb wzr, [x25, #32]
-    mov  x3,  xzr
-    mov  x4,  xzr
-
-rsdp_cksum:
-    cmp  x3,  #36
-    bge  rsdp_cksum_done
-    ldrb w0,  [x25, x3]
-    add  x4,  x4,  x0
-    add  x3,  x3,  #1
-    b    rsdp_cksum
-
-rsdp_cksum_done:
-    neg  w4,  w4
-    and  w4,  w4,  #0xFF
-    strb w4,  [x25, #32]
-
-    // InstallConfigurationTable(&ACPI_20_GUID, new_rsdp)
-    // acpi20_guid_lo and acpi20_guid_hi are contiguous 8-byte values = 16-byte GUID
-    ldr  x8,  [x20, #192]        // InstallConfigurationTable (+0x0C0)
-    adr  x0,  acpi20_guid_lo     // ptr to 16-byte GUID (lo+hi are contiguous in .text)
-    mov  x1,  x25                // new_rsdp NVS address
+    // Step 4: ClearMemoryAttributes(MAP, page-aligned DSDT base, 0x50000, EFI_MEMORY_RO)
+    // EFI_MEMORY_RO = 0x20000 = BIT17 (UEFI 2.10 Table 2-4; note: NOT 0x4000=EFI_MEMORY_XP)
+    mov  x0,  x24               // This
+    and  x1,  x25, #~0xFFF      // page-align DSDT physical address
+    mov  x2,  #0x50000          // 320KB span covers full 279KB DSDT
+    mov  x3,  #0x20000          // EFI_MEMORY_RO
+    ldr  x8,  [x24, #16]        // MAP->ClearMemoryAttributes
     blr  x8
-    // Attempt 5o: display ICT return status via ConOut before stall
-    // x0=status  x25=new_rsdp (callee-saved)  x26=ConOut  x27=SystemTable
-    cbz  x0,  ict5o_ok
-    mov  x0,  x26
-    adr  x1,  cstr_ict_err
-    ldr  x8,  [x26, #8]
-    blr  x8
-    b    ict5o_verify
-ict5o_ok:
-    mov  x0,  x26
-    adr  x1,  cstr_ict_ok
-    ldr  x8,  [x26, #8]
-    blr  x8
-ict5o_verify:
-    // Re-scan ConfigurationTable to check if ACPI_20 entry now points to new_rsdp (x25)
-    // Uses caller-saved x3-x8 (safe after blr to ICT)
-    ldr  x3,  [x27, #104]       // NumberOfTableEntries
-    ldr  x4,  [x27, #112]       // ConfigurationTable ptr
-    mov  x5,  xzr               // i = 0
-ict5o_loop:
-    cmp  x5,  x3
-    bge  ict5o_not_found
-    mov  x6,  #24
-    mul  x6,  x5,  x6
-    add  x6,  x4,  x6           // &ConfigurationTable[i]
-    ldr  x7,  [x6]              // GUID bytes 0-7
-    ldr  x8,  acpi20_guid_lo
-    cmp  x7,  x8
-    bne  ict5o_next
-    ldr  x7,  [x6, #8]          // GUID bytes 8-15
-    ldr  x8,  acpi20_guid_hi
-    cmp  x7,  x8
-    bne  ict5o_next
-    // Found ACPI 2.0 entry - check VendorTable pointer
-    ldr  x7,  [x6, #16]
-    cmp  x7,  x25               // does it point to our new_rsdp?
-    bne  ict5o_old
-    mov  x0,  x26
-    adr  x1,  cstr_ct_ours
-    ldr  x8,  [x26, #8]
-    blr  x8
+    mov  x22, x0                // x22 = CA status (callee-saved)
+{print_asm("cstr_d8_ca")}
+    mov  x0,  x22
+    bl   d8_print_hex64
+
+    // Step 5: Canary write -- 0x47 ('G') to DSDT[0x36C69], read back
+    // 0x36C69 = 0x3_6C69
+    movz x8,  #0x6C69
+    movk x8,  #0x3, lsl #16     // x8 = 0x36C69 = offset of patch byte in DSDT
+    add  x21, x25, x8           // x21 = &DSDT[0x36C69] (callee-saved, survives bl)
+    mov  w0,  #0x47
+    strb w0,  [x21]
+    ldrb w22, [x21]             // x22 = readback byte (callee-saved, survives bl)
+{print_asm("cstr_d8_cw")}
+    uxtb x0,  w22
+    bl   d8_print_hex64
+
+    // Step 6: apply full patch only if canary confirms write took effect
+    cmp  w22, #0x47
+    bne  phase2                 // write silently dropped -- exit gracefully
+
+    // GLNK patch: DSDT[0x36C69..0x36C6C] = 47 4C 4E 4B ("GLNK")
+    // First byte already written (canary). Write remaining three.
+    mov  w0,  #0x4C             // 'L'
+    strb w0,  [x21, #1]
+    mov  w0,  #0x4E             // 'N'
+    strb w0,  [x21, #2]
+    mov  w0,  #0x4B             // 'K'
+    strb w0,  [x21, #3]
+    // Checksum fix: DSDT[9] 0x78 -> 0x95 (GLNK byte-sum=300 vs SPSS byte-sum=329, delta=-29=0x1D)
+    mov  w0,  #0x95
+    strb w0,  [x25, #9]
+{print_asm("cstr_d8_patch_ok")}
     b    phase2
-ict5o_old:
-    mov  x0,  x26
-    adr  x1,  cstr_ct_old
-    ldr  x8,  [x26, #8]
-    blr  x8
+
+d8_map_not_found:
+{print_asm("cstr_d8_map_nf")}
     b    phase2
-ict5o_next:
-    add  x5,  x5,  #1
-    b    ict5o_loop
-ict5o_not_found:
-    mov  x0,  x26
-    adr  x1,  cstr_ct_gone
-    ldr  x8,  [x26, #8]
-    blr  x8
+
+d8_no_dsdt:
+{print_asm("cstr_d8_no_dsdt")}
     b    phase2
+
+// Subroutine d8_print_hex64
+// Input: x0 = 64-bit value to print as 16 uppercase hex chars + CRLF on ConOut
+// x26 must hold ConOut ptr (not clobbered by this routine)
+// Saves/restores lr. Clobbers x0-x3, x8, x9.
+d8_print_hex64:
+    str  lr,  [sp, #-16]!
+    mov  x3,  x0                // working copy of value (x3 caller-saved, ok in loop)
+    adr  x9,  d8_hex_buf        // write ptr into static UTF-16 output buffer
+    mov  x2,  #16               // 16 nibbles
+d8_hex_loop:
+    lsr  x0,  x3, #60           // extract MSB nibble
+    and  x0,  x0, #0xF
+    lsl  x3,  x3, #4            // advance to next nibble
+    cmp  x0,  #10
+    bge  d8_hex_alpha
+    add  x0,  x0, #0x30         // ASCII '0'-'9'
+    b    d8_hex_store
+d8_hex_alpha:
+    add  x0,  x0, #0x37         // ASCII 'A'=0x41 (10+0x37=0x41)
+d8_hex_store:
+    strh w0,  [x9], #2          // store UTF-16 char (ASCII BMP, zero-extends), advance ptr
+    subs x2,  x2, #1
+    bne  d8_hex_loop
+    mov  x0,  #0x0D
+    strh w0,  [x9], #2
+    mov  x0,  #0x0A
+    strh w0,  [x9], #2
+    strh wzr, [x9]              // null-terminate
+    mov  x0,  x26
+    adr  x1,  d8_hex_buf
+    ldr  x8,  [x26, #8]         // ConOut->OutputString
+    blr  x8
+    ldr  lr,  [sp], #16
+    ret
 """
+
+# (old 5n InstallConfigurationTable code removed; see git history for attempt 5n/5o)
 
 # -- Main assembly ------------------------------------------------------
 ASM = f"""
@@ -838,6 +860,36 @@ cstr_ct_old:
 cstr_ct_gone:
     .byte {b2a(cstr_ct_gone)}
     .balign 8
+cstr_d8_start:
+    .byte {b2a(cstr_d8_start)}
+    .balign 8
+cstr_d8_dsdt:
+    .byte {b2a(cstr_d8_dsdt)}
+    .balign 8
+cstr_d8_map_lp:
+    .byte {b2a(cstr_d8_map_lp)}
+    .balign 8
+cstr_d8_map_nf:
+    .byte {b2a(cstr_d8_map_nf)}
+    .balign 8
+cstr_d8_ga:
+    .byte {b2a(cstr_d8_ga)}
+    .balign 8
+cstr_d8_a:
+    .byte {b2a(cstr_d8_a)}
+    .balign 8
+cstr_d8_ca:
+    .byte {b2a(cstr_d8_ca)}
+    .balign 8
+cstr_d8_cw:
+    .byte {b2a(cstr_d8_cw)}
+    .balign 8
+cstr_d8_patch_ok:
+    .byte {b2a(cstr_d8_patch_ok)}
+    .balign 8
+cstr_d8_no_dsdt:
+    .byte {b2a(cstr_d8_no_dsdt)}
+    .balign 8
 lstr_entry:
     .byte {a2a(LOG_STRS["entry"])}
     .balign 8
@@ -963,6 +1015,16 @@ map_proto_guid:
 map_proto_ptr:
     .quad 0
 nvs_base_addr:
+    .quad 0
+    .balign 8
+d8_attrs:
+    .quad 0
+    .balign 8
+d8_hex_buf:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
     .quad 0
     .balign 8
 ssdt_data:
@@ -1107,3 +1169,4 @@ print(f"Subsystem=0x{subsys:04X}  DllChars=0x{dll_ch:04X}  EntryRVA=0x{erva:X}")
 print(f"NumDirEntries={num_dirs}  .reloc dir: VA=0x{reloc_dir_va:X} Size={reloc_dir_size}")
 print(f".text SectionFlags=0x{sec1_ch:08X}")
 print(f"Written: {out}")
+
