@@ -7265,3 +7265,42 @@ The B4 experiment closes the "raw AML live patch + rescan" approach as a standal
 Session 52 is a clean experimental success: the patch worked (writability proven, bytes confirmed), the rescan oracle answered a question (namespace is pre-parsed), and the result narrows the live-patch attack surface to either boot-time or UEFI-time approaches. No device state was changed — the DSDT pool copy was patched (bytes now read "GLNK"), but this copy lives in volatile memory and will reset on next reboot. The machine is otherwise in the same state as before the session.
 
 §6 proof-status and §11 updated: B4 raw-AML-patch path closed; D8 (correct-GUID MAP retest) elevated in priority as the next UEFI-time candidate.
+
+## Session 53 (2026-06-09) — D8 built and deployed; result: DSDT unchanged, MAP status unknown
+
+### Context
+
+D8 is the first valid test of `EFI_MEMORY_ATTRIBUTE_PROTOCOL` (MAP) with the correct GUID `{F4560CF6-40EC-4B4A-A192-BF1D57D0B189}`. All prior attempts (5l, 5m) used `{6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14}` = `EFI_COMPONENT_NAME2_PROTOCOL` by mistake; MAP was never actually invoked in those runs.
+
+### Build
+
+`efi-injection/build_efi.py` updated with correct `MAP_GUID` and Phase 1 rewritten (D8 logic):
+1. Navigate ConfigurationTable → RSDP → XSDT → FADT (X_DSDT) → DSDT physical address
+2. `LocateProtocol(MAP_GUID)` — print status
+3. `GetMemoryAttributes(DSDT_phys, 0x1000)` — print GA status + attribute bits
+4. `ClearMemoryAttributes(page-base, 0x50000, EFI_MEMORY_RO=0x20000)` — BIT17, not BIT14
+5. Canary write `0x47` to `DSDT[0x36C69]`, read back
+6. If canary confirmed: write full GLNK patch + fix checksum `DSDT[9]` `0x78→0x95`
+
+`ADD_STALL=True` (8-second stall at phase2 entry). Binary: 5120 bytes. Deployed to `D:\EFI\BOOT\BOOTAA64.EFI`.
+
+### Post-boot result (2026-06-09)
+
+- **Screen during USB boot:** black screen 5–10 s, then Acer logo, then Windows — no text visible. This is expected: ConOut is not connected to the physical display on this Insyde/Qualcomm firmware (consistent with all prior sessions). The 5–10 s black screen matches the 8-second `ADD_STALL`, confirming the binary executed to phase2.
+- **Log file (`\ai_debug.txt`):** not found on EFI partition (S:) or USB (D:). Log write has never succeeded on this platform; results have always been read from the registry.
+- **Oracle 4 (`DSDT[0x36C69]`):** `53 50 53 53` — **SPSS, unchanged**. Patch did not land.
+- **Oracle 1–3:** QCOM0C87 absent from PnP; SPSS still `CM_PROB_FAILED_ADD`; PIL TZ not linked. Deadlock not broken.
+
+### Interpretation
+
+Oracle 4 being SPSS is consistent with four scenarios:
+- DSDT navigation failed (no FADT found in XSDT)
+- MAP not found (`LP=0x000E`)
+- MAP found, `ClearMemoryAttributes` returned non-zero (firmware blocked)
+- MAP found, CA returned 0, but write was silently dropped (hypervisor/MMU protection below EFI level)
+
+Without screen output or a working log channel, the exact failure point is unknown.
+
+### Status / next step
+
+**Ongoing:** D9 — timing-based diagnostic. Replace the fixed 8-second stall with variable-length stalls (3 s / 6 s / 9 s / 12 s / 15 s / 18 s) that encode which Phase 1 branch was taken. The user times the black screen to determine the MAP status without any output channel. This will tell us definitively whether MAP is absent from this firmware or present but blocked.
