@@ -1,6 +1,11 @@
 ﻿# Acer A14-11M — Qualcomm Driver Recovery on Windows 11 ARM64
 
-> Research paper. For the chronological lab notebook, see [`SESSION_LOG.md`](SESSION_LOG.md).
+> **Superseded for new readers.** The clean research paper is now [`../paper.md`](../paper.md).
+> This document is retained because it is cross-referenced throughout `INDEX.md`,
+> `SESSION_LOG.md`, `ATTEMPTS.md`, and the session handoff notes. All internal links
+> remain valid. New readers should start with `paper.md`.
+
+> For the chronological lab notebook, see [`SESSION_LOG.md`](SESSION_LOG.md).
 > For the navigation map, see [`INDEX.md`](INDEX.md). For the concise attempt summary,
 > see [`ATTEMPTS.md`](ATTEMPTS.md).
 

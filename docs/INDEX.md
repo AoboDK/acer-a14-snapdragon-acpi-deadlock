@@ -1,38 +1,42 @@
 # Repo Navigation Map — Acer A14-11M Research
 
 > Navigation hub for the research repository. Every concept, attempt, hardware ID,
-> protocol, and registry path has a stable address here. For the research paper
-> itself, see [`FINDINGS.md`](FINDINGS.md). For the executive summary, see
+> protocol, and registry path has a stable address here. For the clean research paper,
+> see [`../paper.md`](../paper.md). For the detailed working document with full
+> cross-references, see [`FINDINGS.md`](FINDINGS.md). For the executive summary, see
 > [`../README.md`](../README.md).
 
 ---
 
 ## §1 Reading paths
 
-Three suggested starting points depending on what the reader wants from this repo.
+Four suggested starting points depending on what the reader wants from this repo.
 
 **"I have 10 minutes."** Read [`../README.md`](../README.md). It covers the
 hardware, the bug, the root cause, the status, and the open paths.
 
-**"I want the science."** Read [`FINDINGS.md`](FINDINGS.md) start to finish. It is
-the synthesised research paper, 13 sections, ~1000 lines. Skip to specific findings
-via the topical map in §2 of this file.
+**"I want the science."** Read [`../paper.md`](../paper.md) — the clean research
+paper with abstract, evidence matrix, pending retests, and limitations. Alternatively,
+[`FINDINGS.md`](FINDINGS.md) is the detailed working document covering the same
+ground with more session-level context.
 
 **"I want to extend the work."** Start with [`FINDINGS.md §11`](FINDINGS.md)
 (Open questions), then [`ATTEMPTS.md`](ATTEMPTS.md) "Remaining paths" for the
 structured to-do list, then drill into [`EFI_Injection_Tracking.md`](EFI_Injection_Tracking.md)
 and [`SESSION_LOG.md`](SESSION_LOG.md) as needed for full chronological detail.
 
+**"I want to reproduce or verify the findings."** Read [`../reproduce.md`](../reproduce.md)
+for the minimum reproducible test case with exact commands.
+
 ### By role
 
-- **OEM/silicon engineer escalating internally** → [`FINDINGS.md §6`](FINDINGS.md)
-  (root cause) + [`FINDINGS.md §9`](FINDINGS.md) (memory model) +
-  [`FINDINGS.md §10`](FINDINGS.md) (vendor response so far).
-- **Buyer evaluating the SKU** → [`../README.md`](../README.md) "Status" section
+- **OEM/silicon engineer escalating internally** → [`../vendor_summary.md`](../vendor_summary.md)
+  (one-page escalation) + [`FINDINGS.md §6`](FINDINGS.md) (root cause) +
+  [`FINDINGS.md §9`](FINDINGS.md) (memory model).
+- **Buyer evaluating the SKU** → [`../README.md`](../README.md) "Vendor response"
   + [`FINDINGS.md §10`](FINDINGS.md) (vendor support response).
-- **Researcher reproducing the work** → [`FINDINGS.md §12`](FINDINGS.md)
-  (Reproducibility) + [`efi-injection/README.md`](../efi-injection/README.md)
-  (build and deploy).
+- **Researcher reproducing the work** → [`../reproduce.md`](../reproduce.md)
+  + [`efi-injection/README.md`](../efi-injection/README.md) (build and deploy).
 - **Community contributor with related-SKU experience** →
   [`FINDINGS.md §11`](FINDINGS.md) (Open questions) + [`ATTEMPTS.md`](ATTEMPTS.md).
 
